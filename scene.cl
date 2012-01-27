@@ -1,16 +1,25 @@
 /* vim:set syntax=c: */
-
+#ifndef _SCENE_CL_
+#define _SCENE_CL_
+#include<assert.h>
 #include"../cl-math/basic-math.cl"
 
-typedef short2 flagSpec; // offset and length, in bits
-typedef long par_id_t;
-typedef long2 par_id2_t;
+#ifdef __OPENCL_VERSION__
+	#define cl_short2 short2
+	#define cl_long2 long2
+#endif
 
-int flags_get(int flags, flagSpec spec){ return (flags>>spec.s0)&((1<<spec.s1)-1); }
-void flags_set(int flags, int val, flagSpec spec){ flags|=(val&((1<<spec.s1)-1))<<spec.s0; }
+#include<stdbool.h>
+
+typedef cl_short2 flagSpec; // offset and length, in bits
+typedef long par_id_t;
+typedef cl_long2 par_id2_t;
+
+int flags_get(int flags, flagSpec spec){ return (flags>>spec.x)&((1<<spec.y)-1); }
+void flags_set(int flags, flagSpec spec, int val){ flags|=(val&((1<<spec.y)-1))<<spec.x; }
 
 struct Sphere{	Real radius; };
-Sphere Sphere_new(){ Sphere ret; ret.radius=nan(); return ret; }
+struct Sphere Sphere_new(){ struct Sphere ret; ret.radius=NAN; return ret; }
 
 enum { Shape_Sphere=1, };
 
@@ -21,24 +30,39 @@ struct Particle{
 	Quat ori;
 	Vec3 inertia;
 	Real mass;
-	int semaphore; // HACK!
+	int semaphore;
 	Vec3 force, torque;
 	union{
-		Sphere sphere;
+		struct Sphere sphere;
 	} shape;
 };
+#define PAR_LEN_shapeT  0
+#define PAR_LEN_clumped 1
+#define PAR_LEN_stateT  2
+#define PAR_LEN_dofs    6
+#define PAR_LEN_groups  4
+#define PAR_LEN_matId   6
 
-const flagSpec par_flag_shapeT =(0,2);
-const flagSpec par_flag_clumped=(par_flag_shapeT.x+par_flag_shapeT.y,1);
-const flagSpec par_flag_stateT =(par_flag_clumped.x+par_flag.clumped.y,2);
-const flagSpec par_flag_dofs   =(par_flag_stateT.x+par_flag_stateT.t,6);
-const flagSpec par_flag_groups =(par_flag_dofs.x+par_flag_dofx.y,4);
-const flagSpec par_flag_matId  =(par_flag_groups.x+par_flag_groups.y,8);
-assert(par_flag.groups.x+par_flag_groups.y<=32); // don't overflow int
+#define PAR_OFF_shapeT  0
+#define PAR_OFF_clumped PAR_OFF_shapeT + PAR_LEN_shapeT
+#define PAR_OFF_stateT  PAR_OFF_clumped + PAR_LEN_clumped
+#define PAR_OFF_dofs    PAR_OFF_stateT + PAR_LEN_stateT
+#define PAR_OFF_groups  PAR_OFF_dofs + PAR_LEN_dofs
+#define PAR_OFF_matId   PAR_OFF_groups + PAR_LEN_groups
+
+const flagSpec par_flag_shapeT ={PAR_OFF_shapeT,PAR_LEN_shapeT};
+const flagSpec par_flag_clumped={PAR_OFF_clumped,PAR_LEN_clumped};
+const flagSpec par_flag_stateT ={PAR_OFF_stateT,PAR_LEN_stateT};
+const flagSpec par_flag_dofs   ={PAR_OFF_dofs,PAR_LEN_dofs};
+const flagSpec par_flag_groups ={PAR_OFF_groups,PAR_LEN_groups};
+const flagSpec par_flag_matId  ={PAR_OFF_matId,PAR_LEN_matId};
+/* END */
+
+// static_assert(par_flag_groups.x+par_flag_groups.y<=32); // don't overflow int
 
 #define PARTICLE_FLAG_GET_SET(what) \
-	int par_##what##_get(Particle *p){ return flags_get(p->flags,par_flag_##what); } \
-	void par_##what##_set(Particle *p, int what){ flags_set(p->flags,par_flag_##what,what); }
+	int par_##what##_get(struct Particle *p){ return flags_get(p->flags,par_flag_##what); } \
+	void par_##what##_set(struct Particle *p, int val){ flags_set(p->flags,par_flag_##what,val); }
 PARTICLE_FLAG_GET_SET(shapeT);
 PARTICLE_FLAG_GET_SET(clumped);
 PARTICLE_FLAG_GET_SET(stateT);
@@ -52,13 +76,33 @@ const int par_dofs_rot=56;  // 0b0111000
 const int par_dofs_all=63;  // 0b0111111
 
 
+struct Particle Particle_new(){
+	struct Particle p;
+	p.flags=0;
+	p.pos={NAN,NAN,NAN};
+	p.inertia={1,1,1};
+	p.mass=1.
+	p.vel=p.angVel={0,0,0};
+	p.semaphore=0;
+	p.force=p.torque={0,0,0};
+
+	par_shapeT_set(&p,0);
+	par_clumped_set(&p,0);
+	par_stateT_set(&p,0);
+	par_dofs_set(&p,par_dofs_all);
+	par_groups_set(&p,0);
+	par_matId_set(&p,0);
+}
+
+
+
 struct L1Geom{ Real uN; };
-L1Geom L1Geom_new(){ L1Geom ret; ret.uN=nan(); return L1Geom; }
+struct L1Geom L1Geom_new(){ struct L1Geom ret; ret.uN=NAN; return ret; }
 
 enum { Geom_L1Geom=1, };
 
-struct NormPhys{ Real kN; }
-NormPhys NormPhys_new{ NormPhys ret; ret.kN=nan(); return NormPhys; }
+struct NormPhys{ Real kN; };
+struct NormPhys NormPhys_new(){ struct NormPhys ret; ret.kN=NAN; return ret; }
 
 enum { Phys_NormPhys=1, };
 
@@ -69,44 +113,63 @@ struct Contact{
 	Quat ori;
 	Vec3 force, torque;
 	union {
-		L1Geom l1g;
+		struct L1Geom l1g;
 	} geom;
 	union {
-		NormPhys normPhys;
+		struct NormPhys normPhys;
 	} phys;
 };
 
-const flagSpec con_flag_shapesT=(0,2*par_flag_shapeT.y);
-const flagSpec con_flag_geomT  =(con_flag_shapesT.x+con_flag_shapesT.y,2);
-const flagSpec con_flag_physT  =(con_flag_geomT.x+con_flag_geomT.y,2);
-#define PARTICLE_FLAG_GET_SET(what) \
-	int con_##what##_get(Contact *c){ return flags_get(p->flags,con_flag_##what); } \
-	void con_##what##_set(Contact *c, int what){ flags_set(p->flags,con_flag_##what,what); }
-PARTICLE_FLAG_GET_SET(shapesT);
-PARTICLE_FLAG_GET_SET(geomT);
-PARTICLE_FLAG_GET_SET(physT);
+#define CON_LEN_shapesT 2*(PAR_LEN_shapeT) // currently unused in the actual code
+#define CON_LEN_geomT   2
+#define CON_LEN_physT   2
+
+#define CON_OFF_shapesT 0
+#define CON_OFF_geomT   CON_OFF_shapesT + CON_LEN_shapesT
+#define CON_OFF_physT   CON_OFF_geomT + CON_LEN_geomT
+
+const flagSpec con_flag_shapesT={CON_OFF_shapesT,CON_LEN_shapesT};
+const flagSpec con_flag_geomT  ={CON_OFF_geomT,CON_LEN_geomT};
+const flagSpec con_flag_physT  ={CON_OFF_physT,CON_LEN_physT};
+#define CONTACT_FLAG_GET_SET(what) \
+	int con_##what##_get(struct Contact *c){ return flags_get(c->flags,con_flag_##what); } \
+	void con_##what##_set(struct Contact *c, int val){ flags_set(c->flags,con_flag_##what,val); }
+CONTACT_FLAG_GET_SET(shapesT);
+CONTACT_FLAG_GET_SET(geomT);
+CONTACT_FLAG_GET_SET(physT);
+
+struct Contact Contact_new(){
+	struct Contact c;
+	c.pos={0,0,0};
+	c.ori={1,0,0,0};
+	c.force=c.torque={0,0,0};
+	con_shapesT_set(&c,0);
+	con_geomT_set(&c,0);
+	con_physT_set(&c,0);
+	return c;
+}
 
 int shapeT_combine2(int sh1, int sh2){ return sh1 & sh2<<(par_flag_shapeT.y); }
 int geomT_physT_combine2(int g, int p){ return g & p<<(con_flag_physT.y); }
 
 
 /* possibly we won't need different materials in one single simulation; stay general for now */
-struct ElastMat{ Real young; }
-ElastMat ElastMat_new(){ ElastMat ret; ret.young=nan(); }
+struct ElastMat{ Real young; };
+struct ElastMat ElastMat_new(){ struct ElastMat ret; ret.young=NAN; return ret; }
 
 enum { Mat_ElastMat=1, };
 
 struct Material{
 	int flags;
 	union{
-		ElastMat elast;
+		struct ElastMat elast;
 	} mat;
 };
 
-const flagSpec mat_flag_matT=(0,2);
+const flagSpec mat_flag_matT={0,2};
 #define MATERIAL_FLAG_GET_SET(what) \
-	int mat_##what##_get(Material *m){ return flags_get(m->flags,mat_flag_##what); } \
-	void mat_##what##_set(Material *m, int what){ flags_set(m->flags,mat_flag_##what,what); }
+	int mat_##what##_get(struct Material *m){ return flags_get(m->flags,mat_flag_##what); } \
+	void mat_##what##_set(struct Material *m, int val){ flags_set(m->flags,mat_flag_##what,val); }
 MATERIAL_FLAG_GET_SET(matT);
 
 int matT_combine2(int m1, int m2){ return m1 & m2<<(mat_flag_matT.y); }
@@ -118,9 +181,19 @@ struct Scene{
 	Real dt;
 	Vec3 gravity;
 	Real damping;
-	Material[8] materials;
+	struct Material materials[8];
 };
 
+struct Scene Scene_new(){
+	struct Scene s;
+	s.t=0;
+	s.dt=1e-8;
+	s.step=0;
+	s.gravity={0,0,0};
+	s.damping=0.;
+}
+
+#ifdef __OPENCL_VERSION__
 
 kernel void nextTimestep(global Scene* scene);
 kernel void forcesToParticles(global const Scene* scene, global Particle* par, global const Contact* con);
@@ -136,7 +209,7 @@ kernel void nextTimestep(global Scene* scene){
 		while((sem)!=0); \
 		int _sem_old=atomic_inc(&(sem)); \
 		/* semaphore taken between while and atomic_inc, release and try again */ \
-		if(_sem_old!=0){ atomic_dec(&(sem)); continue }
+		if(atomic_inc(&(sem))!=1){ atomic_dec(&(sem)); continue }
 #define PSEUDO_SEM_CRITICAL_END(sem) \
 		atomic_dec(&(sem)); /* release the semaphore*/ \
 		break; /* end the infinite loop */ \
@@ -156,10 +229,10 @@ kernel void forcesToParticles(global Scene* scene, global Particle* par, global 
 	// write to particles, "protect" via semaphore
 	for(int i=0; i<2; i++){
 		p=(i==0?p1:p2);
-		PSEUDO_SEM_CRITICAL_BEGIN(p->sem);
+		PSEUDO_SEM_CRITICAL_BEGIN(p->semaphore);
 			p->force+=(i==0?Fp1:Fp2);
 			p->torque+=(i==0?Tp1:Tp2);
-		PSEUDO_SEM_CRITICAL_END(p->sem);
+		PSEUDO_SEM_CRITICAL_END(p->semaphore);
 	}
 }
 
@@ -193,8 +266,8 @@ kernel void contCompute(globa const Scene*, global const Particles* par, global 
 		con_geomT_set(c,Geom_L1Geom); c->geom.l1g=L1Geom_new();
 	}
 	/* update geometry */
-	switch(con_shapesT_get(c)){
-		case shapeT_combine2(par_shapeT_get(p1),par_shapeT_get(p2)):
+	switch(shapeT_combine2(par_shapeT_get(p1),par_shapeT_get(p2))){
+		case shapeT_combine2(Shape_Sphere,Shape_Sphere):
 			assert(con_geomT_get(c)==Geom_L1Geom);
 			const L1G* l1g=c->geom.l1g;
 			l1g.uN=distance(p1->pos,p2->pos)-p1->shape.sphere.radius-p2->shape.sphere.radius;
@@ -208,7 +281,7 @@ kernel void contCompute(globa const Scene*, global const Particles* par, global 
 			case matT_combine(Mat_ElastMat,Mat_ElastMat):
 				c->phys.normPhys=NormPhys_new();
 				// ratio should depend on particle radius (TODO)
-				c->phys.normPhys.kN=.5*(m1.mat.young+m2.mat.young);
+				c->phys.normPhys.kN=.5*(m1.mat.young+m2.mat.young) /* multiply by cross-section times length etc */;
 			default: /* error */
 		}
 	}
@@ -221,3 +294,5 @@ kernel void contCompute(globa const Scene*, global const Particles* par, global 
 	}
 }
 
+#endif /* __OPENCL_VERSION__ */
+#endif /* _SCENE_CL_ */
