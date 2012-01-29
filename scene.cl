@@ -79,12 +79,13 @@ const int par_dofs_all=63;  // 0b0111111
 struct Particle Particle_new(){
 	struct Particle p;
 	p.flags=0;
-	p.pos={NAN,NAN,NAN};
-	p.inertia={1,1,1};
-	p.mass=1.
-	p.vel=p.angVel={0,0,0};
+	p.pos=Vec3_set(NAN,NAN,NAN);
+	p.ori=Quat_identity();
+	p.inertia=Vec3_set(1,1,1);
+	p.mass=1.;
+	p.vel=p.angVel=Vec3_set(0,0,0);
 	p.semaphore=0;
-	p.force=p.torque={0,0,0};
+	p.force=p.torque=Vec3_set(0,0,0);
 
 	par_shapeT_set(&p,0);
 	par_clumped_set(&p,0);
@@ -110,7 +111,7 @@ struct Contact{
 	int flags;
 	par_id2_t ids;
 	Vec3 pos;
-	Quat ori;
+	Mat3 ori;
 	Vec3 force, torque;
 	union {
 		struct L1Geom l1g;
@@ -140,9 +141,9 @@ CONTACT_FLAG_GET_SET(physT);
 
 struct Contact Contact_new(){
 	struct Contact c;
-	c.pos={0,0,0};
-	c.ori={1,0,0,0};
-	c.force=c.torque={0,0,0};
+	c.pos=Vec3_set(0,0,0);
+	c.ori=Mat3_identity();
+	c.force=c.torque=Vec3_set(0,0,0);
 	con_shapesT_set(&c,0);
 	con_geomT_set(&c,0);
 	con_physT_set(&c,0);
@@ -189,7 +190,7 @@ struct Scene Scene_new(){
 	s.t=0;
 	s.dt=1e-8;
 	s.step=0;
-	s.gravity={0,0,0};
+	s.gravity=Vec3_set(0,0,0);
 	s.damping=0.;
 }
 
@@ -270,7 +271,12 @@ kernel void contCompute(globa const Scene*, global const Particles* par, global 
 		case shapeT_combine2(Shape_Sphere,Shape_Sphere):
 			assert(con_geomT_get(c)==Geom_L1Geom);
 			const L1G* l1g=c->geom.l1g;
-			l1g.uN=distance(p1->pos,p2->pos)-p1->shape.sphere.radius-p2->shape.sphere.radius;
+			Real r1=p1->shape.sphere.radius, r2=p2->shape.sphere.radius;
+			Real dist=distance(p1->pos,p2->pos);
+			Vec3 normal=(p2->pos-p1->pos)/dist;
+			l1g->uN=dist-(r1+r2);
+			l1g->pos=p1->pos+(r1*.5*l1g->uN)*normal;
+			l1g->ori=Mat3_rot_setYZ(normal);
 		default: /* signal error */
 	}
 	/* update physical params: only if there are no physical params yet */

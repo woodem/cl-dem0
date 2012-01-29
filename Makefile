@@ -1,2 +1,2 @@
 default:
-		gcc -std=gnu99 main.c
+		g++ -std=gnu++0x -lOpenCL test-chain.cc
