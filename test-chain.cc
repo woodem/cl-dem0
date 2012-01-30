@@ -1,15 +1,18 @@
-#include<CL/cl.h>
 
-#include"scene.cl"
 #include<vector>
 #include<iostream>
 #include<fstream>
 #include<sstream>
 #include<algorithm>
+
+#include<CL/cl.h>
+#include"scene.cl"
+
 using std::vector;
 using std::cerr;
 using std::cout;
 using std::endl;
+
 
 const Real r=0.005; // radius
 const Real E=1e6;   // young's modulus
@@ -67,6 +70,13 @@ int main(int argc, char* argv[]){
 	context=clCreateContext(NULL,1,&device,NULL,NULL,&err);
    queue=clCreateCommandQueue(context,device,0,&err);
 
+	// compile source
+	std::ifstream sceneCl("scene.cl",std::ios::in); 
+	std::ostringstream oss; oss<<sceneCl.rdbuf();
+	const char* srcStr(oss.str().c_str());
+	cl_program prog=clCreateProgramWithSource(context,1,(const char**)&srcStr,NULL,NULL);
+	err=clBuildProgram(prog,0,NULL,NULL,NULL,NULL);
+
 	// create buffers, enqueue copies to the device
 	cl_mem sceneBuf=clCreateBuffer(context,CL_MEM_READ_WRITE,sizeof(scene),NULL,&err);
 	clEnqueueWriteBuffer(queue,sceneBuf,CL_TRUE,0,sizeof(scene),&scene,0,NULL,NULL);
@@ -74,37 +84,33 @@ int main(int argc, char* argv[]){
 	clEnqueueWriteBuffer(queue,parBuf,CL_TRUE,0,sizeof(Particle)*par.size(),&(par[0]),0,NULL,NULL);
 	cl_mem conBuf=clCreateBuffer(context,CL_MEM_READ_WRITE,sizeof(Contact)*con.size(),NULL,&err);
 	clEnqueueWriteBuffer(queue,conBuf,CL_TRUE,0,sizeof(Contact)*con.size(),&(con[0]),0,NULL,NULL);
-	//
-	std::ifstream sceneCl("scene.cl",std::ios::in); 
-	std::ostringstream oss; oss<<sceneCl.rdbuf();
-	const char* srcStr(oss.str().c_str());
-	cl_program prog=clCreateProgramWithSource(context,1,(const char**)&srcStr,NULL,NULL);
-	err=clBuildProgram(prog,0,NULL,NULL,NULL,NULL);
-	/* enqueue kernels (args: scene, par, con) */
-	vector<cl_kernel> kernels;
-	for(int step=0; step<100; step++){
-		kernels.push_back(clCreateKernel(prog,"nextTimestep",&err));
-		clSetKernelArg(*kernels.rbegin(),0,sizeof(cl_mem),&sceneBuf);
-		clEnqueueTask(queue,*kernels.rbegin(),0,NULL,NULL);
 
-		kernels.push_back(clCreateKernel(prog,"forcesToParticles",&err));
-		clSetKernelArg(*kernels.rbegin(),0,sizeof(cl_mem),&sceneBuf);
-		clSetKernelArg(*kernels.rbegin(),1,sizeof(cl_mem),&parBuf);
-		clSetKernelArg(*kernels.rbegin(),2,sizeof(cl_mem),&conBuf);
-		clEnqueueNDRangeKernel(queue,*kernels.rbegin(),1,NULL,&Ncon,NULL,0,NULL,NULL);
+	// create kernels, set their arguments
+	cl_kernel stepK=clCreateKernel(prog,"nextTimestep",&err);
+	clSetKernelArg(stepK,0,sizeof(cl_mem),&sceneBuf);
 
-		kernels.push_back(clCreateKernel(prog,"integrator",&err));
-		clSetKernelArg(*kernels.rbegin(),0,sizeof(cl_mem),sceneBuf);
-		clSetKernelArg(*kernels.rbegin(),1,sizeof(cl_mem),&parBuf);
-		clEnqueueNDRangeKernel(queue,*kernels.rbegin(),1,NULL,&N,NULL,0,NULL,NULL);
+	cl_kernel forcesK=clCreateKernel(prog,"forcesToParticles",&err);
+	clSetKernelArg(forcesK,0,sizeof(cl_mem),&sceneBuf);
+	clSetKernelArg(forcesK,1,sizeof(cl_mem),&parBuf);
+	clSetKernelArg(forcesK,2,sizeof(cl_mem),&conBuf);
 
-		kernels.push_back(clCreateKernel(prog,"contCompute",&err));
-		clSetKernelArg(*kernels.rbegin(),0,sizeof(cl_mem),&sceneBuf);
-		clSetKernelArg(*kernels.rbegin(),1,sizeof(cl_mem),&parBuf);
-		clSetKernelArg(*kernels.rbegin(),2,sizeof(cl_mem),&conBuf);
-		clEnqueueNDRangeKernel(queue,*kernels.rbegin(),1,NULL,&Ncon,NULL,0,NULL,NULL);
+	cl_kernel integratorK=clCreateKernel(prog,"integrator",&err);
+	clSetKernelArg(integratorK,0,sizeof(cl_mem),sceneBuf);
+	clSetKernelArg(integratorK,1,sizeof(cl_mem),&parBuf);
+
+	cl_kernel contactsK=clCreateKernel(prog,"contCompute",&err);
+	clSetKernelArg(contactsK,0,sizeof(cl_mem),&sceneBuf);
+	clSetKernelArg(contactsK,1,sizeof(cl_mem),&parBuf);
+	clSetKernelArg(contactsK,2,sizeof(cl_mem),&conBuf);
+
+	// put kernels in the queue
+	for(int step=0; step<10; step++){
+		clEnqueueTask(queue,stepK,0,NULL,NULL);
+		clEnqueueNDRangeKernel(queue,forcesK,1,NULL,&Ncon,NULL,0,NULL,NULL);
+		clEnqueueNDRangeKernel(queue,integratorK,1,NULL,&N,NULL,0,NULL,NULL);
+		clEnqueueNDRangeKernel(queue,contactsK,1,NULL,&Ncon,NULL,0,NULL,NULL);
 	}
-	/* blocking reads wiat for kernels to finish */
+	/* blocking reads wait for kernels to finish */
 	clEnqueueReadBuffer(queue,sceneBuf,CL_TRUE,0,sizeof(scene),&scene,0,NULL,NULL);
 	clEnqueueReadBuffer(queue,parBuf,CL_TRUE,0,sizeof(Particle)*par.size(),&(par[0]),0,NULL,NULL);
 	clEnqueueReadBuffer(queue,conBuf,CL_TRUE,0,sizeof(Contact)*con.size(),&(con[0]),0,NULL,NULL);
