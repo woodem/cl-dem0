@@ -43,7 +43,7 @@ int main(int argc, char* argv[]){
 	cl_kernel stepK=clCreateKernel(prog,"nextTimestep",&err);
 	clSetKernelArg(stepK,0,sizeof(cl_mem),&sceneBuf);
 	// enque kernels
-	for(int step=0; step<20; step++){
+	for(int step=0; step<2000000; step++){
 		clEnqueueTask(queue,stepK,0,NULL,NULL);
 	}
 	clEnqueueReadBuffer(queue,sceneBuf,/*block until done*/CL_TRUE,0,sizeof(scene),&scene,0,NULL,NULL);
