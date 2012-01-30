@@ -328,3 +328,4 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 
 #endif /* _SCENE_CL */
 
+// this padding is important since otherwise the file is read in a werid way givin errors at the end
