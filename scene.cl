@@ -215,7 +215,6 @@ kernel void contCompute(global const struct Scene*, global const struct Particle
 kernel void nextTimestep(global struct Scene* scene){
 	scene->t+=scene->dt;
 	scene->step++;
-	scene->t+=10;
 }
 
 #define PSEUDO_SEM_CRITICAL_BEGIN(sem) \
@@ -269,8 +268,6 @@ kernel void integrator(global const struct Scene* scene, global struct Particle*
 	p->angVel+=angAccel*scene->dt;
 	p->pos+=p->vel*scene->dt;
 	p->ori=Quat_multQ(Quat_fromRotVec(p->angVel*scene->dt),p->ori);
-	// debug
-	//p->pos+=(1,1,1);
 }
 
 kernel void contCompute(global const struct Scene* scene, global const struct Particle* par, global struct Contact* con){
