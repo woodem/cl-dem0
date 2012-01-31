@@ -189,12 +189,14 @@ struct Material{
 constant flagSpec mat_flag_matT={MAT_OFF_matT,MAT_LEN_matT};
 #define MATERIAL_FLAG_GET_SET(what) \
 	int mat_##what##_get(global const struct Material *m){ return flags_get(m->flags,mat_flag_##what); } \
-	void mat_##what##_set(global struct Material *m, int val){ flags_set(&m->flags,mat_flag_##what,val); }
+	void mat_##what##_set(global struct Material *m, int val){ flags_set(&m->flags,mat_flag_##what,val); } \
+	void mat_##what##_set_local(struct Material *m, int val){ flags_set_local(&m->flags,mat_flag_##what,val); }
 MATERIAL_FLAG_GET_SET(matT);
 
 // int matT_combine2(int m1, int m2){ return m1 & m2<<(mat_flag_matT.y); }
 #define MATT2_COMBINE(m1,m2) ((m1) | (m2)<<(MAT_LEN_matT))
 
+#define SCENE_NUM_MAT 8
 
 struct Scene{
 	Real t;
@@ -202,7 +204,7 @@ struct Scene{
 	long step;
 	Vec3 gravity;
 	Real damping;
-	struct Material materials[8];
+	struct Material materials[SCENE_NUM_MAT];
 };
 
 struct Scene Scene_new(){
@@ -212,6 +214,8 @@ struct Scene Scene_new(){
 	s.step=0;
 	s.gravity=Vec3_set(0,0,0);
 	s.damping=0.;
+	// no materials
+	for(int i=0; i<SCENE_NUM_MAT; i++) mat_matT_set_local(&s.materials[i],0); 
 	return s;
 }
 
