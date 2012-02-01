@@ -1,3 +1,4 @@
+/* :vim:makeprg=make: */
 #include<boost/python.hpp>
 namespace py=boost::python;
 
@@ -10,6 +11,7 @@ namespace boost {
 };
 
 #include<boost/lexical_cast.hpp>
+#include<boost/static_assert.hpp>
 #include<vector>
 #include<string>
 #include<iostream>
@@ -25,17 +27,16 @@ using std::string;
 
 #include<eigen3/Eigen/Core>
 #include<eigen3/Eigen/Geometry>
+/* miniEigen types */
 typedef double Real;
-typedef Eigen::Matrix<Real,2,1> Vector2r;
+typedef Eigen::Matrix<int,2,1> Vector2i;
 typedef Eigen::Matrix<Real,3,1> Vector3r;
+typedef Eigen::Matrix<Real,3,3> Matrix3r;
 typedef Eigen::Quaternion<Real> Quaternionr;
 
 
 
 #include"scene.cl"
-
-#define PY_RW_BYVALUE(clss,attr) add_property(BOOST_PP_STRINGIZE(attr),/*read access*/py::make_getter(&clss::attr,py::return_value_policy<py::return_by_value>()),/*write access*/make_setter(&clss::attr,py::return_value_policy<py::return_by_value>()))
-#define PY_RW(clss,attr) def_readwrite(BOOST_PP_STRINGIZE(attr),&clss::attr)
 
 py::object Material_mat_get(const Material* m){
 	int matT=mat_matT_get(m);
@@ -130,7 +131,11 @@ struct Simulation{
 		// initialize OpenCL
 		cl_int err;
 		err=clGetPlatformIDs(1,&platform,NULL); assert(!err);
-		err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_GPU,1,&device,NULL); assert(!err);
+		// get preferrably GPU
+		err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_GPU,1,&device,NULL);
+		// otherwise CPU
+		if(err) err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_CPU,1,&device,NULL);
+		assert(!err);
 		context=clCreateContext(NULL,1,&device,NULL,NULL,&err); assert(!err);
 		queue=clCreateCommandQueue(context,device,0,&err); assert(!err);
 		// compile source
@@ -148,8 +153,6 @@ struct Simulation{
 	};
 };
 
-
-
 /* self-stolen from Yade */
 
 /*** c++-list to python-list */
@@ -159,7 +162,8 @@ struct custom_vector_to_list{
 		py::list ret; for(const containedType& e: v) ret.append(e);
 		return py::incref(ret.ptr());
 	}
-};
+};;
+
 template<typename containedType>
 struct custom_vector_from_seq{
 	custom_vector_from_seq(){ py::converter::registry::push_back(&convertible,&construct,py::type_id<std::vector<containedType> >()); }
@@ -177,23 +181,71 @@ struct custom_vector_from_seq{
 	}
 };
 
+template<typename T> struct get_scalar{ typedef typename T::Scalar type; };
+template<> struct get_scalar<cl_long2>{ typedef cl_long type; };
 
-struct custom_clDouble2_to_Vector2r{ static PyObject* convert(const cl_double2& a){ return py::incref(py::object(Vector2r(a.x,a.y)).ptr());} };
-struct custom_clDouble3_to_Vector3r{ static PyObject* convert(const cl_double3& a){ return py::incref(py::object(Vector3r(a.x,a.y,a.z)).ptr());} };
-struct custom_clDouble4_to_Quaternionr{ static PyObject* convert(const cl_double4& a){ return py::incref(py::object(Quaternionr(a.x,a.y,a.z,a.w)).ptr());} };
+/* fixed-length vector types */
+template<typename clType, typename eigType, int len>
+struct custom_clType_to_eigType{
+	typedef typename get_scalar<clType>::type clType_Scalar;
+	static PyObject* convert(const clType& a){
+		eigType ret;
+		for(int i=0; i<len; i++) ((typename eigType::Scalar*)&ret)[i]=((clType_Scalar*)&a)[i];
+		return py::incref(py::object(ret).ptr());
+	}
+};
+
+//template<typename T> struct get_scalar;
+
+template<typename clType, typename eigType, int len>
+struct custom_clType_from_eigType{
+	typedef typename get_scalar<clType>::type Scalar;
+	custom_clType_from_eigType(){ py::converter::registry::push_back(&convertible,&construct,py::type_id<clType>()); }
+	static void* convertible(PyObject* obj_ptr){
+		// the second condition is important, for some reason otherwise there were attempted conversions of Body to list which failed afterwards.
+		if(!PySequence_Check(obj_ptr) || !PyObject_HasAttrString(obj_ptr,"__len__")) return 0;
+		if(PySequence_Length(obj_ptr)!=len) return 0;
+		return obj_ptr;
+	}
+	static void construct(PyObject* obj_ptr, py::converter::rvalue_from_python_stage1_data* data){
+		 void* storage=((py::converter::rvalue_from_python_storage<clType>*)(data))->storage.bytes;
+		 new (storage) clType();
+		 clType* v=(clType*)(storage);
+		 int l=PySequence_Size(obj_ptr); assert(l>0);
+		 for(int i=0; i<l; i++) { (((Scalar*)v)[i]=py::extract<Scalar>(PySequence_GetItem(obj_ptr,i))); }
+		 data->convertible=storage;
+	}
+};
+
 
 BOOST_PYTHON_MODULE(_miniDem){
-	py::to_python_converter<cl_double2,custom_clDouble2_to_Vector2r>();
-	py::to_python_converter<cl_double3,custom_clDouble3_to_Vector3r>();
-	py::to_python_converter<cl_double4,custom_clDouble4_to_Quaternionr>();
+	/*
+	NOTE:
+	* types which are wrapped directly (such as scalars) can be returned by reference, with PY_RW
+	* types which are not directly wrapped (such as Vec3, which is converted to and from eigen's Vector3r etc) must be returned by value, with PY_RWV
+	*/
+
+	py::to_python_converter<cl_long2,custom_clType_to_eigType<cl_long2,Vector2i,2>>();
+	py::to_python_converter<Vec3    ,custom_clType_to_eigType<Vec3,Vector3r,3>>();
+	py::to_python_converter<Quat    ,custom_clType_to_eigType<Quat,Quaternionr,4>>();
+	py::to_python_converter<Mat3    ,custom_clType_to_eigType<Mat3,Matrix3r,9>>();
+
+	custom_clType_from_eigType<cl_long2,Vector2i,2>();
+	custom_clType_from_eigType<Vec3,Vector3r,3>();
+	custom_clType_from_eigType<Mat3,Matrix3r,9>();
+	custom_clType_from_eigType<Quat,Quaternionr,4>();
+
+	#define PY_RWV(clss,attr) add_property(BOOST_PP_STRINGIZE(attr),/*read access*/py::make_getter(&clss::attr,py::return_value_policy<py::return_by_value>()),/*write access*/make_setter(&clss::attr,py::return_value_policy<py::return_by_value>()))
+	#define PY_RW(clss,attr) def_readwrite(BOOST_PP_STRINGIZE(attr),&clss::attr)
+
 
 	py::class_<Simulation>("Simulation")
 		.PY_RW(Simulation,scene)
-		.PY_RW_BYVALUE(Simulation,par)
-		.PY_RW_BYVALUE(Simulation,con)
+		.PY_RWV(Simulation,par)
+		.PY_RWV(Simulation,con)
 	;
 	py::class_<Scene>("Scene").def("__init__",Scene_new)
-		.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,gravity).PY_RW(Scene,damping)
+		.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RWV(Scene,gravity).PY_RWV(Scene,damping)
 		//.PY_RW_BYVALUE(Scene,materials)
 		.add_property("materials",Scene_mats_get,Scene_mats_set)
 	;
@@ -202,7 +254,7 @@ BOOST_PYTHON_MODULE(_miniDem){
 	#endif
 
 	py::class_<Particle>("Particle").def("__init__",Particle_new)
-		.PY_RW(Particle,pos).PY_RW(Particle,ori).PY_RW(Particle,inertia).PY_RW(Particle,mass).PY_RW(Particle,vel).PY_RW(Particle,force).PY_RW(Particle,torque)
+		.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,force).PY_RWV(Particle,torque)
 		.add_property("shape",Particle_shape_get,Particle_shape_set)
 		// flags
 		.add_property("shapeT",par_shapeT_get)
@@ -213,7 +265,7 @@ BOOST_PYTHON_MODULE(_miniDem){
 		.add_property("matId",par_matId_get,par_matId_set)
 	;
 	py::class_<Contact>("Contact").def("__init__",Contact_new)
-		.PY_RW(Contact,ids).PY_RW(Contact,pos).PY_RW(Contact,ori).PY_RW(Contact,force).PY_RW(Contact,torque)
+		.PY_RWV(Contact,ids).PY_RWV(Contact,pos).PY_RWV(Contact,ori).PY_RWV(Contact,force).PY_RWV(Contact,torque)
 		.add_property("geom",Contact_geom_get,Contact_geom_set)
 		.add_property("phys",Contact_phys_get,Contact_phys_set)
 		.add_property("shapesT",con_shapesT_get)

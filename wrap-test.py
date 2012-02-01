@@ -19,3 +19,5 @@ sim.scene.materials=[miniDem.ElastMat()]
 print sim.par[0].shape.radius
 c=miniDem.Contact()
 print c.pos
+print c.ids
+print c.ori
