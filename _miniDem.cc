@@ -22,6 +22,16 @@ using std::vector;
 using boost::lexical_cast;
 using std::string;
 
+
+#include<eigen3/Eigen/Core>
+#include<eigen3/Eigen/Geometry>
+typedef double Real;
+typedef Eigen::Matrix<Real,2,1> Vector2r;
+typedef Eigen::Matrix<Real,3,1> Vector3r;
+typedef Eigen::Quaternion<Real> Quaternionr;
+
+
+
 #include"scene.cl"
 
 #define PY_RW_BYVALUE(clss,attr) add_property(BOOST_PP_STRINGIZE(attr),/*read access*/py::make_getter(&clss::attr,py::return_value_policy<py::return_by_value>()),/*write access*/make_setter(&clss::attr,py::return_value_policy<py::return_by_value>()))
@@ -114,7 +124,7 @@ struct Simulation{
 
 	Simulation(){
 		scene=Scene_new();
-		initCl();
+		// initCl();
 	}
 	void initCl(){
 		// initialize OpenCL
@@ -168,7 +178,15 @@ struct custom_vector_from_seq{
 };
 
 
+struct custom_clDouble2_to_Vector2r{ static PyObject* convert(const cl_double2& a){ return py::incref(py::object(Vector2r(a.x,a.y)).ptr());} };
+struct custom_clDouble3_to_Vector3r{ static PyObject* convert(const cl_double3& a){ return py::incref(py::object(Vector3r(a.x,a.y,a.z)).ptr());} };
+struct custom_clDouble4_to_Quaternionr{ static PyObject* convert(const cl_double4& a){ return py::incref(py::object(Quaternionr(a.x,a.y,a.z,a.w)).ptr());} };
+
 BOOST_PYTHON_MODULE(_miniDem){
+	py::to_python_converter<cl_double2,custom_clDouble2_to_Vector2r>();
+	py::to_python_converter<cl_double3,custom_clDouble3_to_Vector3r>();
+	py::to_python_converter<cl_double4,custom_clDouble4_to_Quaternionr>();
+
 	py::class_<Simulation>("Simulation")
 		.PY_RW(Simulation,scene)
 		.PY_RW_BYVALUE(Simulation,par)
