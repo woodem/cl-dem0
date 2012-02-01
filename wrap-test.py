@@ -1,6 +1,8 @@
 import sys
 sys.path.append('.')
 import miniDem
+sys.path.append('/usr/local/lib/yade-tr2/py')
+import miniEigen
 sim=miniDem.Simulation()
 print sim.scene
 print sim.con
@@ -16,3 +18,4 @@ sim.scene.materials=[]
 sim.scene.materials=[miniDem.ElastMat()]
 print sim.par[0].shape.radius
 c=miniDem.Contact()
+print c.pos
