@@ -35,6 +35,10 @@ typedef Eigen::Matrix<Real,3,3> Matrix3r;
 typedef Eigen::Quaternion<Real> Quaternionr;
 
 
+#define __CL_ENABLE_EXCEPTIONS
+#include"cl.hpp"
+
+
 
 #include"scene.cl"
 
@@ -115,41 +119,56 @@ struct Simulation{
 	Scene scene;
 	vector<Particle> par;
 	vector<Contact> con;
-	bool initialized;
 
-	cl_platform_id platform;
-	cl_context context;
-	cl_device_id device;
-	cl_int err;
-	cl_command_queue queue;
+	cl::Platform platform;
+	cl::Device device;
+	cl::Context context;
+	cl::CommandQueue queue;
+	cl::Program program;
 
-	Simulation(){
+	Simulation(int pNum=-1,int dNum=-1){
 		scene=Scene_new();
-		// initCl();
+		initCl(pNum,dNum);
 	}
-	void initCl(){
-		// initialize OpenCL
-		cl_int err;
-		err=clGetPlatformIDs(1,&platform,NULL); assert(!err);
-		// get preferrably GPU
-		err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_GPU,1,&device,NULL);
-		// otherwise CPU
-		if(err) err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_CPU,1,&device,NULL);
-		assert(!err);
-		context=clCreateContext(NULL,1,&device,NULL,NULL,&err); assert(!err);
-		queue=clCreateCommandQueue(context,device,0,&err); assert(!err);
-		// compile source
-		std::ifstream sceneCl("scene.cl",std::ios::in); 
-		std::ostringstream oss; oss<<"#line 1 \"scene.cl\"\n"<<sceneCl.rdbuf();
-		const char* srcStr(oss.str().c_str());
-		cl_program prog=clCreateProgramWithSource(context,1,(const char**)&srcStr,NULL,NULL);
-		err=clBuildProgram(prog,0,NULL,"-Werror ",NULL,NULL);
-		if(err!=CL_SUCCESS){
-			char buildLog[1<<16];
-			clGetProgramBuildInfo(prog,device,CL_PROGRAM_BUILD_LOG,sizeof(buildLog),buildLog,NULL);
-			std::cerr<<buildLog;
-			throw std::runtime_error("Error compiling OpenCL sources.");
+	void initCl(int pNum, int dNum){
+		std::vector<cl::Platform> platforms;
+		std::vector<cl::Device> devices;
+		cl::Platform::get(&platforms);
+		if(pNum<0){
+			std::cerr<<"==================================="<<std::endl;
+			for(int i=0; i<platforms.size(); i++){
+				std::cerr<<i<<". platform: "<<platforms[i].getInfo<CL_PLATFORM_NAME>()<<std::endl;
+				platforms[i].getDevices(CL_DEVICE_TYPE_ALL,&devices);
+				for(int j=0; j<devices.size(); j++){
+					std::cerr<<"\t"<<j<<". device: "<<devices[j].getInfo<CL_DEVICE_NAME>()<<std::endl;
+				}
+			}
+			std::cerr<<"==================================="<<std::endl;
 		}
+		cl::Platform::get(&platforms);
+		if(pNum>=(int)platforms.size()){ std::cerr<<"Only "<<platforms.size()<<" platforms available, taking 0th platform."<<std::endl; pNum=0; }
+		if(pNum<0) pNum=0;
+		platform=platforms[pNum];
+		platforms[pNum].getDevices(CL_DEVICE_TYPE_ALL,&devices);
+		if(dNum>=(int)devices.size()){ std::cerr<<"Only "<<devices.size()<<" devices available, taking 0th platform."<<std::endl; dNum=0; }
+		if(dNum<0) dNum=0;
+		context=cl::Context(devices);
+		device=devices[dNum];
+		std::cerr<<"** OpenCL ready: platform \""<<platform.getInfo<CL_PLATFORM_NAME>()<<"\", device \""<<device.getInfo<CL_DEVICE_NAME>()<<"\"."<<std::endl;
+		queue=cl::CommandQueue(context,device);
+		// compile source
+		const char* src="#include\"scene.cl\"\n";
+		cl::Program::Sources source(1,std::make_pair(src,std::string(src).size()));
+		program=cl::Program(context,source);
+		try{
+			program.build(std::vector<cl::Device>({device}),"-I.",NULL,NULL);
+		}catch(cl::Error& e){
+			std::cerr<<"Error building source. Build log:\n"<<program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device)<<std::endl;
+			throw std::runtime_error("Error compiling OpenCL code.");
+		}
+		auto log=program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device);
+		if(!log.empty()) std::cerr<<log<<std::endl;
+		std::cerr<<"** Program compiled.\n";
 	};
 };
 
@@ -195,8 +214,6 @@ struct custom_clType_to_eigType{
 	}
 };
 
-//template<typename T> struct get_scalar;
-
 template<typename clType, typename eigType, int len>
 struct custom_clType_from_eigType{
 	typedef typename get_scalar<clType>::type Scalar;
@@ -239,7 +256,7 @@ BOOST_PYTHON_MODULE(_miniDem){
 	#define PY_RW(clss,attr) def_readwrite(BOOST_PP_STRINGIZE(attr),&clss::attr)
 
 
-	py::class_<Simulation>("Simulation")
+	py::class_<Simulation>("Simulation",py::init<int,int>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1)))
 		.PY_RW(Simulation,scene)
 		.PY_RWV(Simulation,par)
 		.PY_RWV(Simulation,con)
@@ -257,6 +274,7 @@ BOOST_PYTHON_MODULE(_miniDem){
 		.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,force).PY_RWV(Particle,torque)
 		.add_property("shape",Particle_shape_get,Particle_shape_set)
 		// flags
+		.def_readonly("flags",&Particle::flags)
 		.add_property("shapeT",par_shapeT_get)
 		.add_property("clumped",par_clumped_get,par_clumped_set)
 		.add_property("stateT",par_stateT_get)
@@ -266,6 +284,7 @@ BOOST_PYTHON_MODULE(_miniDem){
 	;
 	py::class_<Contact>("Contact").def("__init__",Contact_new)
 		.PY_RWV(Contact,ids).PY_RWV(Contact,pos).PY_RWV(Contact,ori).PY_RWV(Contact,force).PY_RWV(Contact,torque)
+		.def_readonly("flags",&Contact::flags)
 		.add_property("geom",Contact_geom_get,Contact_geom_set)
 		.add_property("phys",Contact_phys_get,Contact_phys_set)
 		.add_property("shapesT",con_shapesT_get)

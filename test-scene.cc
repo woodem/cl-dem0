@@ -15,16 +15,25 @@ int main(int argc, char* argv[]){
    cl_context context;
    cl_command_queue queue;
    err=clGetPlatformIDs(1,&platform,NULL); assert(!err);
-   err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_GPU,1,&device,NULL); assert(!err);
+   err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_CPU,1,&device,NULL); assert(!err);
 	context=clCreateContext(NULL,1,&device,NULL,NULL,&err); assert(!err);
    queue=clCreateCommandQueue(context,device,0,&err); assert(!err);
 	// compile source
-	std::ifstream sceneCl("scene.cl",std::ios::in); 
-	std::ostringstream oss; oss<<"#line 1 \"scene.cl\"\n"<<sceneCl.rdbuf();
-	const char* srcStr(oss.str().c_str());
-	cl_program prog=clCreateProgramWithSource(context,1,(const char**)&srcStr,NULL,NULL);
-	err=clBuildProgram(prog,0,NULL,"-Werror ",NULL,NULL);
+	const char* src="#include\"scene.cl\"\n";
+	cl_program prog=clCreateProgramWithSource(context,1,(const char**)&src,NULL,&err); assert(!err);
+	err=clBuildProgram(prog,0,NULL,"-Werror -I.",NULL,NULL);
 	if(err!=CL_SUCCESS){
+		switch(err){
+			#define CASE_ERR(e) case e: std::cerr<<#e<<std::endl; break;
+			CASE_ERR(CL_INVALID_PROGRAM);
+			CASE_ERR(CL_INVALID_VALUE);
+			CASE_ERR(CL_INVALID_DEVICE);
+			CASE_ERR(CL_INVALID_BUILD_OPTIONS);
+			CASE_ERR(CL_COMPILER_NOT_AVAILABLE);
+			CASE_ERR(CL_BUILD_PROGRAM_FAILURE);
+			CASE_ERR(CL_INVALID_OPERATION);
+			CASE_ERR(CL_OUT_OF_HOST_MEMORY);
+		}
 		char buildLog[1<<16];
 		clGetProgramBuildInfo(prog,device,CL_PROGRAM_BUILD_LOG,sizeof(buildLog),buildLog,NULL);
 		std::cerr<<buildLog;
@@ -43,7 +52,7 @@ int main(int argc, char* argv[]){
 	cl_kernel stepK=clCreateKernel(prog,"nextTimestep",&err);
 	clSetKernelArg(stepK,0,sizeof(cl_mem),&sceneBuf);
 	// enque kernels
-	for(int step=0; step<2000000; step++){
+	for(int step=0; step<20000; step++){
 		clEnqueueTask(queue,stepK,0,NULL,NULL);
 	}
 	clEnqueueReadBuffer(queue,sceneBuf,/*block until done*/CL_TRUE,0,sizeof(scene),&scene,0,NULL,NULL);

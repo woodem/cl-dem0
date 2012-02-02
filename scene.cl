@@ -4,13 +4,30 @@
 
 #include"../cl-math/basic-math.cl"
 
+
 #ifdef __OPENCL_VERSION__
 	#define cl_short2 short2
 	#define cl_long2 long2
+	// printf in OpenCL code
+	#ifdef cl_intel_printf
+		#pragma OPENCL EXTENSION cl_intel_printf: enable
+	#elif defined(cl_amd_printf)
+		#pragma OPENCL EXTENSION cl_amd_printf: enable
+	#else
+		#define printf(...)
+	#endif
 #else
 	#define global
 	#define constant const
 #endif
+
+//#ifdef cl_khr_global_int32_base_atomics
+	#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
+//#else
+//	#error cl_khr_global_int32_base_atomics extension not supported
+//#endif
+
+
 
 typedef cl_short2 flagSpec; // offset and length, in bits
 typedef long par_id_t;
@@ -31,7 +48,7 @@ void flags_set_local(int *flags, const flagSpec spec, int val){
 struct Sphere{	Real radius; };
 struct Sphere Sphere_new(){ struct Sphere ret; ret.radius=NAN; return ret; }
 
-enum { Shape_Sphere=1, };
+enum _shape_enum { Shape_Sphere=1, };
 
 // http://gpu.doxos.eu/trac/wiki/OpenCLDataStructures
 struct Particle{
@@ -40,8 +57,8 @@ struct Particle{
 	Quat ori;
 	Vec3 inertia;
 	Real mass;
-	int spinlock;
 	Vec3 force, torque;
+	int mutex;
 	union{
 		struct Sphere sphere;
 	} shape;
@@ -95,7 +112,7 @@ struct Particle Particle_new(){
 	p.inertia=Vec3_set(1,1,1);
 	p.mass=1.;
 	p.vel=p.angVel=Vec3_set(0,0,0);
-	p.spinlock=0;
+	p.mutex=0;
 	p.force=p.torque=Vec3_set(0,0,0);
 
 	par_shapeT_set_local(&p,0);
@@ -113,12 +130,12 @@ struct Particle Particle_new(){
 struct L1Geom{ Real uN; };
 struct L1Geom L1Geom_new(){ struct L1Geom ret; ret.uN=NAN; return ret; }
 
-enum { Geom_L1Geom=1, };
+enum _geom_enum { Geom_L1Geom=1, };
 
 struct NormPhys{ Real kN; };
 struct NormPhys NormPhys_new(){ struct NormPhys ret; ret.kN=NAN; return ret; }
 
-enum { Phys_NormPhys=1, };
+enum _phys_enum { Phys_NormPhys=1, };
 
 struct Contact{
 	int flags;
@@ -175,7 +192,7 @@ struct Contact Contact_new(){
 struct ElastMat{ Real young; };
 struct ElastMat ElastMat_new(){ struct ElastMat ret; ret.young=NAN; return ret; }
 
-enum { Mat_ElastMat=1, };
+enum _mat_enum { Mat_ElastMat=1, };
 
 struct Material{
 	int flags;
@@ -231,17 +248,9 @@ kernel void nextTimestep(global struct Scene* scene){
 	scene->step++;
 }
 
-#define SPINLOCK_CRITICAL_BEGIN(sem) \
-	while(true){ \
-		while((sem)!=0); \
-		int _sem_old=atomic_inc(&(sem)); \
-		/* spinlock taken between while and atomic_inc, release and try again */ \
-		if(atomic_inc(&(sem))!=1){ atomic_dec(&(sem)); continue; }
-#define SPINLOCK_CRITICAL_END(sem) \
-		atomic_dec(&(sem)); /* release the spinlock*/ \
-		break; /* end the infinite loop */ \
-	}
-
+#define TRYLOCK(a) atom_cmpxchg(a,0,1)
+#define LOCK(a) while(TRYLOCK(a))
+#define UNLOCK(a) atom_xchg(a,0)
 
 kernel void forcesToParticles(global const struct Scene* scene, global struct Particle* par, global const struct Contact* con){
 	//if(scene->step==0) return;
@@ -253,18 +262,12 @@ kernel void forcesToParticles(global const struct Scene* scene, global struct Pa
 	Vec3 Fp2=-Mat3_multV(R_T,c->force);
 	Vec3 Tp1=+cross(c->pos-p1->pos,Mat3_multV(R_T,c->force))+Mat3_multV(R_T,c->torque);
 	Vec3 Tp2=-cross(c->pos-p2->pos,Mat3_multV(R_T,c->force))-Mat3_multV(R_T,c->torque);
-	p1->force+=Fp1; p1->torque+=Tp1;
-	p2->force+=Fp2; p2->torque+=Tp2;
-#if 0
-	// write to particles, "protect" via spinlock
-	for(int i=0; i<2; i++){
-		global struct Particle *p=(i==0?p1:p2);
-		//SPINLOCK_CRITICAL_BEGIN(p->spinlock);
-			p->force+=(i==0?Fp1:Fp2);
-			p->torque+=(i==0?Tp1:Tp2);
-		//SPINLOCK_CRITICAL_END(p->spinlock);
-	}
-#endif
+	LOCK(&p1->mutex);
+		p1->force+=Fp1; p1->torque+=Tp1;
+	UNLOCK(&p1->mutex);
+	LOCK(&p1->mutex);
+		p2->force+=Fp2; p2->torque+=Tp2;
+	UNLOCK(&p1->mutex);
 }
 
 kernel void integrator(global struct Scene* scene, global struct Particle* par){
@@ -285,7 +288,7 @@ kernel void integrator(global struct Scene* scene, global struct Particle* par){
 		accel+=p->force/p->mass+scene->gravity; // ((Real*)(&accel))[2]=0;
 	} else {
 		for(int ax=0; ax<3; ax++){
-			if(dofs & dof_axis(ax,false)) ((Real*)(&accel))[ax]+=((Real*)(&p->force))[ax]/p->mass+((Real*)(&scene->gravity))[ax];
+			if(dofs & dof_axis(ax,false)) ((Real*)(&accel))[ax]+=((global Real*)(&(p->force)))[ax]/p->mass+((global Real*)(&(scene->gravity)))[ax];
 			else ((Real*)(&accel))[ax]=0.;
 		}
 	}
@@ -293,7 +296,7 @@ kernel void integrator(global struct Scene* scene, global struct Particle* par){
 		angAccel+=p->torque/p->inertia.x;
 	} else {
 		for(int ax=0; ax<3; ax++){
-			if(dofs & dof_axis(ax,true )) ((Real*)(&angAccel))[ax]+=((Real*)(&p->torque))[ax]/p->inertia.x;
+			if(dofs & dof_axis(ax,true )) ((Real*)(&angAccel))[ax]+=((global Real*)(&p->torque))[ax]/p->inertia.x;
 			else ((Real*)(&angAccel))[ax]=0.;
 		}
 	}
@@ -327,6 +330,8 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 			Real dist=distance(p1->pos,p2->pos);
 			Vec3 normal=(p2->pos-p1->pos)/dist;
 			l1g->uN=dist-(r1+r2);
+			// l1g->uN=*(global float*)((global char*)(&p1->shape.sphere.radius)+4);
+			// printf("r1=%g, %g, %p\n",r1,p1->shape.sphere.radius,(global void*)&(p1->shape.sphere.radius));
 			c->pos=p1->pos+(r1+.5*l1g->uN)*normal;
 			c->ori=Mat3_rot_setYZ(normal);
 		}

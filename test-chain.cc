@@ -33,7 +33,7 @@ int main(int argc, char* argv[]){
 	struct Scene scene=Scene_new();
 	// scene setup
 	scene.dt=.2*(r/sqrt(E/rho)); // .5 × p-Wave critical timestep
-	scene.gravity=Vec3_set(0,0,-10);
+	scene.gravity={0,0,-10};
 	scene.damping=.7;
 
 	struct ElastMat em=ElastMat_new();
@@ -47,16 +47,16 @@ int main(int argc, char* argv[]){
 	for(int i=0; i<N; i++){
 		par[i]=Particle_new();
 		Particle& p(par[i]);
-		p.pos=Vec3_set(2*r*i,0,0);
+		p.pos={2*r*i,0,0};
 		p.mass=rho*(4/3.)*M_PI*pow(r,3);
 		Real inert=p.mass*(2/5.)*pow(r,2);
-		p.inertia=Vec3_set(inert,inert,inert);
+		p.inertia={inert,inert,inert};
 		bool isSupport=(i==0||std::find(supports.begin(),supports.end(),i)!=supports.end());
 		par_dofs_set(&p,isSupport?0:par_dofs_all);
 		p.shape.sphere=Sphere_new();
 		p.shape.sphere.radius=r;
 		par_shapeT_set(&p,Shape_Sphere);
-		//cerr<<"#"<<i<<", flags="<<p.flags<<endl;
+		cerr<<"#"<<i<<", flags="<<p.flags<<endl;
 		if(i>0){ // first particle has no contact with the previous one
 			con[i-1]=Contact_new();
 			con[i-1].ids.s0=i-1;
@@ -65,21 +65,36 @@ int main(int argc, char* argv[]){
 	}
    // initialize OpenCL
    cl_int err;
-   cl_platform_id platform;
+   cl_platform_id platforms[8];
    cl_device_id device;
    cl_context context;
    cl_command_queue queue;
-   err=clGetPlatformIDs(1,&platform,NULL); assert(!err);
-   err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_GPU,1,&device,NULL); assert(!err);
+	cl_uint nPlatforms;
+   err=clGetPlatformIDs(8,platforms,&nPlatforms); assert(!err);
+	cerr<<"Number of platforms available: "<<nPlatforms<<endl;
+	cl_platform_id platform=platforms[1];
+   err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_GPU,1,&device,NULL);
+	if(err){ cerr<<"No GPU, trying CPU"<<endl; err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_CPU,1,&device,NULL); }
+	assert(!err);
 	context=clCreateContext(NULL,1,&device,NULL,NULL,&err); assert(!err);
    queue=clCreateCommandQueue(context,device,0,&err); assert(!err);
 	// compile source
-	std::ifstream sceneCl("scene.cl",std::ios::in); 
-	std::ostringstream oss; oss<<"#line 1 \"scene.cl\"\n"<<sceneCl.rdbuf();
-	const char* srcStr(oss.str().c_str());
-	cl_program prog=clCreateProgramWithSource(context,1,(const char**)&srcStr,NULL,NULL);
-	err=clBuildProgram(prog,0,NULL,"-Werror ",NULL,NULL);
+	const char* src="#include\"scene.cl\"";
+	cl_program prog=clCreateProgramWithSource(context,1,&src,NULL,NULL);
+	err=clBuildProgram(prog,0,NULL," -I.",NULL,NULL);
 	if(err!=CL_SUCCESS){
+		switch(err){
+			#define CASE_ERR(e) case e: std::cerr<<#e<<std::endl; break;
+			CASE_ERR(CL_INVALID_PROGRAM);
+			CASE_ERR(CL_INVALID_VALUE);
+			CASE_ERR(CL_INVALID_DEVICE);
+			CASE_ERR(CL_INVALID_BUILD_OPTIONS);
+			CASE_ERR(CL_COMPILER_NOT_AVAILABLE);
+			CASE_ERR(CL_BUILD_PROGRAM_FAILURE);
+			CASE_ERR(CL_INVALID_OPERATION);
+			CASE_ERR(CL_OUT_OF_HOST_MEMORY);
+			default: std::cerr<<"Unknown error from clBuildProgram: "<<err<<std::endl;
+		}
 		char buildLog[1<<16];
 		clGetProgramBuildInfo(prog,device,CL_PROGRAM_BUILD_LOG,sizeof(buildLog),buildLog,NULL);
 		std::cerr<<buildLog;
@@ -111,30 +126,31 @@ int main(int argc, char* argv[]){
 	clSetKernelArg(forcesK,0,sizeof(cl_mem),&sceneBuf);
 	clSetKernelArg(forcesK,1,sizeof(cl_mem),&parBuf);
 	clSetKernelArg(forcesK,2,sizeof(cl_mem),&conBuf);
-
-	size_t one={1,};
-	// put kernels in the queue
-	for(int step=0; step<50000; step++){
-		clEnqueueTask(queue,stepK,0,NULL,NULL);
-		clEnqueueNDRangeKernel(queue,integratorK,1,NULL,&N,   &one,0,NULL,NULL);
-		clEnqueueNDRangeKernel(queue,contactsK,  1,NULL,&Ncon,&one,0,NULL,NULL);
-		clEnqueueNDRangeKernel(queue,forcesK,    1,NULL,&Ncon,&one,0,NULL,NULL);
+	
+	for(int bigStep=0; bigStep<1; bigStep++){
+		size_t one={1,};
+		// put kernels in the queue
+		for(int step=0; step<10; step++){
+			clEnqueueTask(queue,stepK,0,NULL,NULL);
+			clEnqueueNDRangeKernel(queue,integratorK,1,NULL,&N,   &one,0,NULL,NULL);
+			clEnqueueNDRangeKernel(queue,contactsK,  1,NULL,&Ncon,&one,0,NULL,NULL);
+			clEnqueueNDRangeKernel(queue,forcesK,    1,NULL,&Ncon,&one,0,NULL,NULL);
+		}
+		/* blocking reads wait for kernels to finish */
+		clEnqueueReadBuffer(queue,sceneBuf,CL_TRUE,0,sizeof(scene),&scene,0,NULL,NULL);
+		clEnqueueReadBuffer(queue,parBuf,CL_TRUE,0,sizeof(Particle)*par.size(),&(par[0]),0,NULL,NULL);
+		clEnqueueReadBuffer(queue,conBuf,CL_TRUE,0,sizeof(Contact)*con.size(),&(con[0]),0,NULL,NULL);
+		// write out particle's positions
+		cout<<"At step "<<scene.step<<" (t="<<scene.t<<"), Δt="<<scene.dt<<endl;
+		for(size_t i=0; i<par.size(); i++){
+			cout<<"#"<<i<<" x="<<par[i].pos<<"; F="<<par[i].force<<endl; //", vel="<<par[i].vel.x<<","<<par[i].vel.y<<","<<par[i].vel.z<<endl;
+		}
+		for(const Contact& c: con){
+			cout<<"#"<<c.ids.x<<"+"<<c.ids.y<<": pt="<<c.pos<<endl;
+			cout<<"\tgeomT="<<con_geomT_get(&c)<<", uN="<<c.geom.l1g.uN<<", locX="<<c.ori<<endl;
+			cout<<"\tphysT="<<con_physT_get(&c)<<", kN="<<c.phys.normPhys.kN<<", F="<<c.force<<endl;
+			//cout<<"\tcomb="<<GEOMT_PHYST_COMBINE(con_geomT_get(&c),con_physT_get(&c))<<", handled "<<GEOMT_PHYST_COMBINE(Geom_L1Geom,Phys_NormPhys)<<endl;
+		}
 	}
-	/* blocking reads wait for kernels to finish */
-	clEnqueueReadBuffer(queue,sceneBuf,CL_TRUE,0,sizeof(scene),&scene,0,NULL,NULL);
-	clEnqueueReadBuffer(queue,parBuf,CL_TRUE,0,sizeof(Particle)*par.size(),&(par[0]),0,NULL,NULL);
-	clEnqueueReadBuffer(queue,conBuf,CL_TRUE,0,sizeof(Contact)*con.size(),&(con[0]),0,NULL,NULL);
-	// write out particle's positions
-	cout<<"Finished at step "<<scene.step<<" (t="<<scene.t<<"), Δt="<<scene.dt<<endl;
-	for(size_t i=0; i<par.size(); i++){
-		cout<<"#"<<i<<": "<<par[i].pos.x<<", "<<par[i].pos.y<<", "<<par[i].pos.z<<"; F="<<par[i].force.x<<", "<<par[i].force.y<<", "<<par[i].force.z<<endl; //", vel="<<par[i].vel.x<<","<<par[i].vel.y<<","<<par[i].vel.z<<endl;
-	}
-	for(const Contact& c: con){
-		cout<<"#"<<c.ids.x<<"+"<<c.ids.y<<": pt="<<c.pos.x<<", "<<c.pos.y<<", "<<c.pos.z<<endl;
-		cout<<"\tgeomT="<<con_geomT_get(&c)<<", uN="<<c.geom.l1g.uN<<", locX="<<c.ori.s0<<","<<c.ori.s3<<","<<c.ori.s6<<endl;
-		cout<<"\tphysT="<<con_physT_get(&c)<<", kN="<<c.phys.normPhys.kN<<", F="<<c.force.x<<","<<c.force.y<<","<<c.force.z<<endl;
-		//cout<<"\tcomb="<<GEOMT_PHYST_COMBINE(con_geomT_get(&c),con_physT_get(&c))<<", handled "<<GEOMT_PHYST_COMBINE(Geom_L1Geom,Phys_NormPhys)<<endl;
-	}
-
 	return 0;
 }

@@ -14,6 +14,7 @@ def BaseClassSetter(baseClass,**kw):
 # functions which look like constructors, but set all attributes from keyword passed to them
 # the actual classes are in the _miniDem module, which is not imported into the namespace
 # of this module directly
-for clss in ('Scene','Simulation','ElastMat','Particle','Sphere','Contact','L1Geom','NormPhys'):
+for clss in ('Scene','ElastMat','Particle','Sphere','Contact','L1Geom','NormPhys'):
 	# global() is reference to the global (module, in this case) dictionary
 	globals()[clss]=functools.partial(BaseClassSetter,getattr(_miniDem,clss))
+Simulation=_miniDem.Simulation
