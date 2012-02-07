@@ -58,10 +58,10 @@ struct Particle{
 	Vec3 inertia;
 	Real mass;
 	Vec3 force, torque;
-	int mutex;
 	union{
 		struct Sphere sphere;
 	} shape;
+	int mutex;
 };
 #define PAR_LEN_shapeT  2
 #define PAR_LEN_clumped 1
@@ -330,8 +330,19 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 			Real dist=distance(p1->pos,p2->pos);
 			Vec3 normal=(p2->pos-p1->pos)/dist;
 			l1g->uN=dist-(r1+r2);
+			#if 0
+			if(c->ids.s0==0){
+				for (size_t i=0; i<sizeof(double); i++) { printf("%02x ",((global unsigned char*)&(p1->shape.sphere.radius))[i]); }
+				printf("\n");
+				for (size_t i=0; i<sizeof(struct Sphere); i++) {printf("%02x ",((global unsigned char*)&(p1->shape.sphere))[i]); }
+				printf("\n");
+				for (size_t i=0; i<sizeof(struct Particle); i++) {  if(i>0 && (i%8)==0) printf("  "); if(i>0 && (i%32)==0) printf("\n");  printf("%02x ",((global unsigned char*)p1)[i]); }
+				//printf("sizes %ld %ld %ld",sizeof(double),sizeof(struct Sphere),sizeof(struct Particle));
+				printf("\n=============================== -------------- ==========================\n");
+			}
 			// l1g->uN=*(global float*)((global char*)(&p1->shape.sphere.radius)+4);
 			// printf("r1=%g, %g, %p\n",r1,p1->shape.sphere.radius,(global void*)&(p1->shape.sphere.radius));
+			#endif
 			c->pos=p1->pos+(r1+.5*l1g->uN)*normal;
 			c->ori=Mat3_rot_setYZ(normal);
 		}

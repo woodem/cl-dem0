@@ -19,6 +19,8 @@ namespace boost {
 #include<sstream>
 #include<algorithm>
 #include<cassert>
+#include<boost/python/suite/indexing/vector_indexing_suite.hpp>
+
 
 using std::vector;
 using boost::lexical_cast;
@@ -41,6 +43,9 @@ typedef Eigen::Quaternion<Real> Quaternionr;
 
 
 #include"scene.cl"
+
+bool operator==(const Particle& a, const Particle& b){ return memcmp(&a,&b,sizeof(Particle))==0; }
+bool operator==(const Contact& a, const Contact& b){ return memcmp(&a,&b,sizeof(Contact))==0; }
 
 py::object Material_mat_get(const Material* m){
 	int matT=mat_matT_get(m);
@@ -150,7 +155,7 @@ struct Simulation{
 		if(pNum<0) pNum=0;
 		platform=platforms[pNum];
 		platforms[pNum].getDevices(CL_DEVICE_TYPE_ALL,&devices);
-		if(dNum>=(int)devices.size()){ std::cerr<<"Only "<<devices.size()<<" devices available, taking 0th platform."<<std::endl; dNum=0; }
+		if(dNum>=(int)devices.size()){ std::cerr<<"Only "<<devices.size()<<" devices available, taking 0th device."<<std::endl; dNum=0; }
 		if(dNum<0) dNum=0;
 		context=cl::Context(devices);
 		device=devices[dNum];
@@ -163,13 +168,37 @@ struct Simulation{
 		try{
 			program.build(std::vector<cl::Device>({device}),"-I.",NULL,NULL);
 		}catch(cl::Error& e){
-			std::cerr<<"Error building source. Build log:\n"<<program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device)<<std::endl;
+			std::cerr<<"Error building source. Build log follows."<<std::endl;
+			std::cerr<<program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device)<<std::endl;
 			throw std::runtime_error("Error compiling OpenCL code.");
 		}
-		auto log=program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device);
-		if(!log.empty()) std::cerr<<log<<std::endl;
+		//auto log=program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device);
+		//if(!log.empty()) std::cerr<<log<<std::endl;
 		std::cerr<<"** Program compiled.\n";
 	};
+	void run(int nSteps){
+		if(par.empty() || con.empty()) throw std::runtime_error("There must be some particles (now "+lexical_cast<string>(par.size())+") and contacts (now "+lexical_cast<string>(con.size())+")");
+		// create buffers, enqueue copies to the device
+		cl::Buffer sceneBuf=cl::Buffer(context,CL_MEM_READ_WRITE,sizeof(Scene),NULL);
+		queue.enqueueWriteBuffer(sceneBuf,CL_FALSE,0,sizeof(Scene),&scene);
+		cl::Buffer parBuf=cl::Buffer(context,CL_MEM_READ_WRITE,sizeof(Particle)*par.size(),NULL);
+		queue.enqueueWriteBuffer(parBuf,CL_FALSE,0,sizeof(Particle)*par.size(),&(par[0]));
+		cl::Buffer conBuf=cl::Buffer(context,CL_MEM_READ_WRITE,sizeof(Contact )*con.size(),NULL);
+		queue.enqueueWriteBuffer(conBuf,CL_FALSE,0,sizeof(Contact )*con.size(),&(con[0]));
+		cl::Kernel stepK(program,"nextTimestep"); stepK.setArg(0,sceneBuf);
+		cl::Kernel integratorK(program,"integrator"); integratorK.setArg(0,sceneBuf); integratorK.setArg(1,parBuf);
+		cl::Kernel contactK(program,"contCompute"); contactK.setArg(0,sceneBuf); contactK.setArg(1,parBuf); contactK.setArg(2,conBuf);
+		cl::Kernel forcesK(program,"forcesToParticles"); forcesK.setArg(0,sceneBuf); forcesK.setArg(1,parBuf); forcesK.setArg(2,conBuf);
+		for(int i=0; i<nSteps; i++){
+			queue.enqueueTask(stepK);
+			queue.enqueueNDRangeKernel(integratorK,cl::NDRange(0),cl::NDRange(par.size()),cl::NDRange(1));
+			queue.enqueueNDRangeKernel(contactK   ,cl::NDRange(0),cl::NDRange(con.size()),cl::NDRange(1));
+			queue.enqueueNDRangeKernel(forcesK    ,cl::NDRange(0),cl::NDRange(con.size()),cl::NDRange(1));
+		}
+		queue.enqueueReadBuffer(sceneBuf,CL_TRUE,0,sizeof(Scene),&scene);
+		queue.enqueueReadBuffer(parBuf,CL_TRUE,0,sizeof(Particle)*par.size(),&(par[0]));
+		queue.enqueueReadBuffer(conBuf,CL_TRUE,0,sizeof(Contact )*con.size(),&(con[0]));
+	}
 };
 
 /* self-stolen from Yade */
@@ -252,17 +281,19 @@ BOOST_PYTHON_MODULE(_miniDem){
 	custom_clType_from_eigType<Mat3,Matrix3r,9>();
 	custom_clType_from_eigType<Quat,Quaternionr,4>();
 
+
 	#define PY_RWV(clss,attr) add_property(BOOST_PP_STRINGIZE(attr),/*read access*/py::make_getter(&clss::attr,py::return_value_policy<py::return_by_value>()),/*write access*/make_setter(&clss::attr,py::return_value_policy<py::return_by_value>()))
 	#define PY_RW(clss,attr) def_readwrite(BOOST_PP_STRINGIZE(attr),&clss::attr)
 
 
 	py::class_<Simulation>("Simulation",py::init<int,int>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1)))
 		.PY_RW(Simulation,scene)
-		.PY_RWV(Simulation,par)
-		.PY_RWV(Simulation,con)
+		.PY_RW(Simulation,par)
+		.PY_RW(Simulation,con)
+		.def("run",&Simulation::run)
 	;
 	py::class_<Scene>("Scene").def("__init__",Scene_new)
-		.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RWV(Scene,gravity).PY_RWV(Scene,damping)
+		.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,step).PY_RWV(Scene,gravity).PY_RWV(Scene,damping)
 		//.PY_RW_BYVALUE(Scene,materials)
 		.add_property("materials",Scene_mats_get,Scene_mats_set)
 	;
@@ -298,8 +329,12 @@ BOOST_PYTHON_MODULE(_miniDem){
 	py::class_<NormPhys>("NormPhys").def("__init__",NormPhys_new).PY_RW(NormPhys,kN);
 
 	#define VECTOR_SEQ_CONV(Type) custom_vector_from_seq<Type>();  py::to_python_converter<std::vector<Type>, custom_vector_to_list<Type> >();
-	VECTOR_SEQ_CONV(Particle);
-	VECTOR_SEQ_CONV(Contact);
 	VECTOR_SEQ_CONV(Material);
+	// provide only converters from list
+	custom_vector_from_seq<Particle>();
+	custom_vector_from_seq<Contact>();
+	// these convert the other way
+	py::class_<std::vector<Particle>>("ParticleList").def(py::vector_indexing_suite<std::vector<Particle>>());
+	py::class_<std::vector<Contact>>("ContactList").def(py::vector_indexing_suite<std::vector<Contact>>());
 };
 

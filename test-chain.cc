@@ -22,13 +22,36 @@ const Real rho=1e4; // density
 
 int main(int argc, char* argv[]){
 	if(argc<=1){
-		cerr<<"Usage: "<<argv[0]<<" N support1 support2 ..."<<endl;
-		return 1;
+		cerr<<"Usage: "<<argv[0]<<" platformNumber"<<endl;
+		return -1;
 	}
-	size_t N=atoi(argv[1]);
+	int platformNum=atoi(argv[1]);
+
+   // initialize OpenCL
+   cl_int err;
+   cl_platform_id platforms[8];
+   cl_device_id device;
+   cl_context context;
+   cl_command_queue queue;
+	cl_uint nPlatforms;
+   err=clGetPlatformIDs(8,platforms,&nPlatforms); assert(!err);
+	//cerr<<"Number of platforms available: "<<nPlatforms<<endl;
+	if(nPlatforms==0){ cerr<<"No OpenCL platform available"<<endl; return -1; }
+	if(platformNum>=nPlatforms){ cerr<<"Only "<<nPlatforms<<" available, using 0th platform."<<endl; platformNum=0; }
+	cl_platform_id platform=platforms[platformNum];
+   err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_GPU,1,&device,NULL);
+	if(err){ cerr<<"No GPU, trying CPU"<<endl; err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_CPU,1,&device,NULL); }
+	assert(!err);
+	char pName[128],dName[128];
+	clGetPlatformInfo(platform,CL_PLATFORM_NAME,sizeof(pName),pName,NULL);
+	clGetDeviceInfo(device,CL_DEVICE_NAME,sizeof(dName),dName,NULL);
+	cerr<<"** OpenCL ready: platform \""<<pName<<"\", device \""<<dName<<"\"."<<endl;
+	context=clCreateContext(NULL,1,&device,NULL,NULL,&err); assert(!err);
+   queue=clCreateCommandQueue(context,device,0,&err); assert(!err);
+
+	size_t N=10;
 	size_t Ncon=N-1;
-	vector<int> supports;
-	for(int i=2; i<argc; i++) supports.push_back(atoi(argv[i]));
+	vector<size_t> supports={0,N-1};
 
 	struct Scene scene=Scene_new();
 	// scene setup
@@ -51,7 +74,7 @@ int main(int argc, char* argv[]){
 		p.mass=rho*(4/3.)*M_PI*pow(r,3);
 		Real inert=p.mass*(2/5.)*pow(r,2);
 		p.inertia={inert,inert,inert};
-		bool isSupport=(i==0||std::find(supports.begin(),supports.end(),i)!=supports.end());
+		bool isSupport=(std::find(supports.begin(),supports.end(),i)!=supports.end());
 		par_dofs_set(&p,isSupport?0:par_dofs_all);
 		p.shape.sphere=Sphere_new();
 		p.shape.sphere.radius=r;
@@ -63,21 +86,6 @@ int main(int argc, char* argv[]){
 			con[i-1].ids.s1=i;
 		}
 	}
-   // initialize OpenCL
-   cl_int err;
-   cl_platform_id platforms[8];
-   cl_device_id device;
-   cl_context context;
-   cl_command_queue queue;
-	cl_uint nPlatforms;
-   err=clGetPlatformIDs(8,platforms,&nPlatforms); assert(!err);
-	cerr<<"Number of platforms available: "<<nPlatforms<<endl;
-	cl_platform_id platform=platforms[1];
-   err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_GPU,1,&device,NULL);
-	if(err){ cerr<<"No GPU, trying CPU"<<endl; err=clGetDeviceIDs(platform,CL_DEVICE_TYPE_CPU,1,&device,NULL); }
-	assert(!err);
-	context=clCreateContext(NULL,1,&device,NULL,NULL,&err); assert(!err);
-   queue=clCreateCommandQueue(context,device,0,&err); assert(!err);
 	// compile source
 	const char* src="#include\"scene.cl\"";
 	cl_program prog=clCreateProgramWithSource(context,1,&src,NULL,NULL);
@@ -130,7 +138,7 @@ int main(int argc, char* argv[]){
 	for(int bigStep=0; bigStep<1; bigStep++){
 		size_t one={1,};
 		// put kernels in the queue
-		for(int step=0; step<10; step++){
+		for(int step=0; step<10000; step++){
 			clEnqueueTask(queue,stepK,0,NULL,NULL);
 			clEnqueueNDRangeKernel(queue,integratorK,1,NULL,&N,   &one,0,NULL,NULL);
 			clEnqueueNDRangeKernel(queue,contactsK,  1,NULL,&Ncon,&one,0,NULL,NULL);
@@ -143,7 +151,7 @@ int main(int argc, char* argv[]){
 		// write out particle's positions
 		cout<<"At step "<<scene.step<<" (t="<<scene.t<<"), Δt="<<scene.dt<<endl;
 		for(size_t i=0; i<par.size(); i++){
-			cout<<"#"<<i<<" x="<<par[i].pos<<"; F="<<par[i].force<<endl; //", vel="<<par[i].vel.x<<","<<par[i].vel.y<<","<<par[i].vel.z<<endl;
+			cout<<"#"<<i<<" x="<<par[i].pos<<"; v="<<par[i].vel<<endl;
 		}
 		for(const Contact& c: con){
 			cout<<"#"<<c.ids.x<<"+"<<c.ids.y<<": pt="<<c.pos<<endl;
