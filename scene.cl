@@ -5,6 +5,14 @@
 #include"../cl-math/basic-math.cl"
 
 
+// AMD does not align unions correctly, help it a bit here
+// the 128 is the biggest alignment (on cl_double16), which is very
+// wasteful
+// optionally, alignment could be specified on each union
+// to accomodate the biggest alignment of contained structs
+#define AMD_UNION_ALIGN_BUG_WORKAROUND() __attribute__((aligned(128)))
+
+
 #ifdef __OPENCL_VERSION__
 	#define cl_short2 short2
 	#define cl_long2 long2
@@ -58,9 +66,9 @@ struct Particle{
 	Vec3 inertia;
 	Real mass;
 	Vec3 force, torque;
-	union{
+	union {
 		struct Sphere sphere;
-	} shape;
+	} AMD_UNION_ALIGN_BUG_WORKAROUND() shape;
 	int mutex;
 };
 #define PAR_LEN_shapeT  2
@@ -145,10 +153,10 @@ struct Contact{
 	Vec3 force, torque;
 	union {
 		struct L1Geom l1g;
-	} geom;
+	}  AMD_UNION_ALIGN_BUG_WORKAROUND() geom;
 	union {
 		struct NormPhys normPhys;
-	} phys;
+	}  AMD_UNION_ALIGN_BUG_WORKAROUND() phys;
 };
 
 #define CON_LEN_shapesT 2*(PAR_LEN_shapeT) // currently unused in the actual code
@@ -198,7 +206,7 @@ struct Material{
 	int flags;
 	union{
 		struct ElastMat elast;
-	} mat;
+	}  AMD_UNION_ALIGN_BUG_WORKAROUND() mat;
 };
 
 #define MAT_LEN_matT 3
