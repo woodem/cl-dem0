@@ -36,6 +36,22 @@ typedef Eigen::Matrix<Real,3,1> Vector3r;
 typedef Eigen::Matrix<Real,3,3> Matrix3r;
 typedef Eigen::Quaternion<Real> Quaternionr;
 
+#ifdef MINIDEM_VTK
+	#include<vtkSmartPointer.h>
+	#include<vtkLine.h>
+	#include<vtkPoints.h>
+	#include<vtkPointData.h>
+	#include<vtkFloatArray.h>
+	#include<vtkIntArray.h>
+	#include<vtkCellArray.h>
+	#include<vtkCellData.h>
+	#include<vtkZLibDataCompressor.h>
+	#include<vtkUnstructuredGrid.h>
+	#include<vtkXMLUnstructuredGridWriter.h>
+	#include<vtkPolyData.h>
+	#include<vtkXMLPolyDataWriter.h>
+#endif
+
 
 #define __CL_ENABLE_EXCEPTIONS
 #include"cl.hpp"
@@ -162,7 +178,7 @@ struct Simulation{
 		std::cerr<<"** OpenCL ready: platform \""<<platform.getInfo<CL_PLATFORM_NAME>()<<"\", device \""<<device.getInfo<CL_DEVICE_NAME>()<<"\"."<<std::endl;
 		queue=cl::CommandQueue(context,device);
 		// compile source
-		const char* src="#include\"scene.cl\"\n";
+		const char* src="#include\"scene.cl\"\n\n\0";
 		cl::Program::Sources source(1,std::make_pair(src,std::string(src).size()));
 		program=cl::Program(context,source);
 		try{
@@ -199,6 +215,102 @@ struct Simulation{
 		queue.enqueueReadBuffer(parBuf,CL_TRUE,0,sizeof(Particle)*par.size(),&(par[0]));
 		queue.enqueueReadBuffer(conBuf,CL_TRUE,0,sizeof(Contact )*con.size(),&(con[0]));
 	}
+	#ifdef MINIDEM_VTK
+		py::list saveVtk(string prefix, bool compress=true, bool ascii=false){
+			py::list savedFiles;
+			string suffix="."+lexical_cast<string>(scene.step);
+			vtkSmartPointer<vtkDataCompressor> compressor;
+			if(compress) compressor=vtkSmartPointer<vtkZLibDataCompressor>::New();
+			#define _NEW_ARR(type,name,dim) vtkSmartPointer<type> name=vtkSmartPointer<type>::New(); name->SetNumberOfComponents(dim); name->SetName(#name)
+			#define _NEW_FLOAT_ARR(name,dim) _NEW_ARR(vtkFloatArray,name,dim)
+			#define _NEW_INT_ARR(name,dim) _NEW_ARR(vtkFloatArray,name,dim)
+			#define _INSERT_V3(name,v3) { float _foo[3]={(float)v3[0],(float)v3[1],(float)v3[2]}; name->InsertNextTupleValue(_foo); }
+			/* spheres */
+			{
+				auto pos=vtkSmartPointer<vtkPoints>::New();
+				auto cells=vtkSmartPointer<vtkCellArray>::New();
+				_NEW_INT_ARR(id,1);
+				_NEW_INT_ARR(matId,1);
+				_NEW_FLOAT_ARR(radius,1);
+				_NEW_FLOAT_ARR(mass,1);
+				_NEW_FLOAT_ARR(inertia,3);
+				_NEW_FLOAT_ARR(vel,3);
+				_NEW_FLOAT_ARR(angVel,3);
+				_NEW_FLOAT_ARR(force,3);
+				_NEW_FLOAT_ARR(torque,3);
+				for(size_t i=0; i<par.size(); i++){
+					const Particle& p(par[i]);
+					if(par_shapeT_get(&p)!=Shape_Sphere) continue;
+					vtkIdType seqId=pos->InsertNextPoint(p.pos[0],p.pos[1],p.pos[2]);
+					cells->InsertNextCell(1,&seqId);
+					id->InsertNextValue(i);
+					matId->InsertNextValue(par_matId_get(&p));
+					radius->InsertNextValue(p.shape.sphere.radius);
+					mass->InsertNextValue(p.mass);
+					_INSERT_V3(inertia,p.inertia);
+					_INSERT_V3(vel,p.vel);
+					_INSERT_V3(angVel,p.angVel);
+					_INSERT_V3(force,p.force);
+					_INSERT_V3(torque,p.torque);
+				}
+				auto grid=vtkSmartPointer<vtkUnstructuredGrid>::New();
+				grid->SetPoints(pos);
+				grid->SetCells(VTK_VERTEX,cells);
+				grid->GetPointData()->AddArray(id);
+				grid->GetPointData()->AddArray(matId);
+				grid->GetPointData()->AddArray(radius);
+				grid->GetPointData()->AddArray(mass);
+				grid->GetPointData()->AddArray(inertia);
+				grid->GetPointData()->AddArray(vel);
+				grid->GetPointData()->AddArray(angVel);
+				grid->GetPointData()->AddArray(force);
+				grid->GetPointData()->AddArray(torque);
+				auto writer=vtkSmartPointer<vtkXMLUnstructuredGridWriter>::New();
+				if(compress) writer->SetCompressor(compressor);
+				if(ascii) writer->SetDataModeToAscii();
+				writer->SetFileName((prefix+".spheres"+suffix+".vtu").c_str());
+				writer->SetInput(grid);
+				writer->Write();
+				savedFiles.append(string(writer->GetFileName()));
+			}
+			/* contacts */
+			{
+				auto parPos=vtkSmartPointer<vtkPoints>::New();
+				auto cells=vtkSmartPointer<vtkCellArray>::New();
+				_NEW_FLOAT_ARR(fN,1);
+				_NEW_FLOAT_ARR(kN,1);
+				_NEW_FLOAT_ARR(uN,1);
+				//_NEW_FLOAT_ARR(absFt,1);
+				//_NEW_FLOAT_ARR(kT,1);
+				// particle positions are point between which contact lines are spanned
+				for(const Particle& p: par) parPos->InsertNextPoint(p.pos[0],p.pos[1],p.pos[2]);
+				for(const Contact& c: con){
+					auto line=vtkSmartPointer<vtkLine>::New();
+					line->GetPointIds()->SetId(0,c.ids.x);
+					line->GetPointIds()->SetId(1,c.ids.y);
+					cells->InsertNextCell(line);
+					fN->InsertNextValue(c.force[0]); // in local coords
+					// RTTI
+					if(con_geomT_get(&c)==Geom_L1Geom){ uN->InsertNextValue(c.geom.l1g.uN); }
+					if(con_physT_get(&c)==Phys_NormPhys){ kN->InsertNextValue(c.phys.normPhys.kN); }
+				}
+				auto poly=vtkSmartPointer<vtkPolyData>::New();
+				poly->SetPoints(parPos);
+				poly->SetLines(cells);
+				poly->GetCellData()->AddArray(fN);
+				poly->GetCellData()->AddArray(kN);
+				poly->GetCellData()->AddArray(uN);
+				auto writer=vtkSmartPointer<vtkXMLPolyDataWriter>::New();
+				if(compress) writer->SetCompressor(compressor);
+				if(ascii) writer->SetDataModeToAscii();
+				writer->SetFileName((prefix+".con"+suffix+".vtp").c_str());
+				writer->SetInput(poly);
+				writer->Write();
+				savedFiles.append(string(writer->GetFileName()));
+			}
+			return savedFiles;
+		}
+	#endif
 };
 
 /* self-stolen from Yade */
@@ -291,6 +403,7 @@ BOOST_PYTHON_MODULE(_miniDem){
 		.PY_RW(Simulation,par)
 		.PY_RW(Simulation,con)
 		.def("run",&Simulation::run)
+		.def("saveVtk",&Simulation::saveVtk,(py::arg("prefix"),py::arg("compress")=true,py::arg("ascii")=false))
 	;
 	py::class_<Scene>("Scene").def("__init__",Scene_new)
 		.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,step).PY_RWV(Scene,gravity).PY_RWV(Scene,damping)

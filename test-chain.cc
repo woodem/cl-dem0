@@ -16,7 +16,7 @@ using std::endl;
 
 
 const Real r=0.005; // radius
-const Real E=1e9;   // young's modulus
+const Real E=1e4;   // young's modulus
 const Real rho=1e4; // density
 
 
@@ -49,7 +49,7 @@ int main(int argc, char* argv[]){
 	context=clCreateContext(NULL,1,&device,NULL,NULL,&err); assert(!err);
    queue=clCreateCommandQueue(context,device,0,&err); assert(!err);
 
-	size_t N=10;
+	size_t N=50;
 	size_t Ncon=N-1;
 	vector<size_t> supports={0,N-1};
 

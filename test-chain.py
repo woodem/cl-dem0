@@ -1,17 +1,17 @@
 # encoding: utf-8
-import miniDem
 import sys
-sys.path.append('/usr/local/lib/yade-tr2/py')
+sys.path.append('.')
+import miniDem
 from miniEigen import *
 from math import *
 
 pNum=int(sys.argv[1]) if len(sys.argv)>1 else -1
 dNum=int(sys.argv[2]) if len(sys.argv)>2 else -1
 
-N=10
-supports=[0,9,];
+N=50
+supports=[0,49,];
 r=.005
-E=1e9
+E=1e4
 rho=1e4
 mass=rho*(4/3.)*pi*r**3
 inertia=mass*(2/5.)*r**2*Vector3.Ones
@@ -31,12 +31,10 @@ for i in range(0,N):
 	if i>0:
 		sim.con.append(miniDem.Contact(ids=(i-1,i)))
 
-sim.run(10000)
 
 # output similar to the c++ code
 Vector3.__str__=lambda s: '('+','.join('%g'%e for e in s)+')'
 Matrix3.__str__=lambda s: '('+', '.join(','.join('%g'%e for e in s.row(i)) for i in (0,1,2))+')'
-
 
 def showSim(sim):
 	print 'At step %d (t=%g), Δt=%g'%(sim.scene.step,sim.scene.t,sim.scene.dt)
@@ -46,5 +44,9 @@ def showSim(sim):
 		print '##%d+%d: p=%s'%(c.ids[0],c.ids[1],c.pos)
 		print '\tgeomT=%d, uN=%g, rot=%s'%(c.geomT,c.geom.uN,c.ori)
 		print '\tphysT=%d, kN=%g, F=%s'%(c.physT,c.phys.kN,c.force)
+
+for i in range(0,100):
+	sim.run(10)
+	print 'Saved',sim.saveVtk('/tmp/chain',compress=False,ascii=True)
 
 showSim(sim)
