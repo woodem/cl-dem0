@@ -35,6 +35,13 @@
 //	#error cl_khr_global_int32_base_atomics extension not supported
 //#endif
 
+#ifdef __cplusplus
+	#include<cstring>
+	#define UNION_EMPTY_CTOR(a) a(){}; a(const a& _b){ memcpy(this,&_b,sizeof(a));}; a& operator=(const a& _b){ memcpy(this,&_b,sizeof(a)); return *this; };
+#else
+	#define UNION_EMPTY_CTOR(a)
+#endif
+
 
 
 typedef cl_short2 flagSpec; // offset and length, in bits
@@ -138,7 +145,10 @@ struct Particle Particle_new(){
 struct L1Geom{ Real uN; };
 struct L1Geom L1Geom_new(){ struct L1Geom ret; ret.uN=NAN; return ret; }
 
-enum _geom_enum { Geom_L1Geom=1, };
+struct L6Geom{ Real uN; Vec3 vel; Vec3 angVel; };
+struct L6Geom L6Geom_new(){ struct L6Geom ret; ret.uN=NAN; ret.vel=ret.angVel=Vec3_set(0.,0.,0.); return ret; }
+
+enum _geom_enum { Geom_L1Geom=1, Geom_L6Geom };
 
 struct NormPhys{ Real kN; };
 struct NormPhys NormPhys_new(){ struct NormPhys ret; ret.kN=NAN; return ret; }
@@ -151,8 +161,10 @@ struct Contact{
 	Vec3 pos;
 	Mat3 ori;
 	Vec3 force, torque;
-	union {
+	union _gg {
+		UNION_EMPTY_CTOR(_gg)
 		struct L1Geom l1g;
+		struct L6Geom l6g;
 	}  AMD_UNION_ALIGN_BUG_WORKAROUND() geom;
 	union {
 		struct NormPhys normPhys;
@@ -197,8 +209,8 @@ struct Contact Contact_new(){
 
 
 /* possibly we won't need different materials in one single simulation; stay general for now */
-struct ElastMat{ Real young; };
-struct ElastMat ElastMat_new(){ struct ElastMat ret; ret.young=NAN; return ret; }
+struct ElastMat{ Real density, young; };
+struct ElastMat ElastMat_new(){ struct ElastMat ret; ret.density=NAN; ret.young=NAN; return ret; }
 
 enum _mat_enum { Mat_ElastMat=1, };
 
@@ -321,41 +333,75 @@ kernel void integrator(global struct Scene* scene, global struct Particle* par){
 	p->force=p->torque=(Vec3)0.;
 }
 
+void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, const Real r1, const Real r2, Real dt){
+	// new contact
+	if(con_geomT_get(c)==0){
+		con_geomT_set(c,Geom_L6Geom); c->geom.l6g=L6Geom_new();
+		c->ori=Mat3_rot_setYZ(normal);
+		c->pos=contPt;
+		c->geom.l6g.uN=uN;
+		return;
+	}
+	Vec3 currNormal=normal;
+	Vec3 prevNormal=Mat3_row(c->ori,0);
+	Vec3 prevContPt=c->pos;
+	Vec3 normRotVec=cross(prevNormal,currNormal);
+	Vec3 midNormal=normalize(.5*(prevNormal+currNormal));
+	Vec3 normTwistVec=midNormal*dt*.5*dot(midNormal,angVel1+angVel2);
+	Mat3 prevOri=c->ori;
+	Vec3 midOri1=Mat3_row(prevOri,1)-.5*cross(Mat3_row(prevOri,1),normRotVec+normTwistVec);
+	Mat3 midOri=Mat3_setRows(midNormal,midOri1,cross(midNormal,midOri1));
+	Vec3 currOri1=Mat3_row(prevOri,1)-cross(midOri1,normRotVec+normTwistVec);
+	Mat3 currOri=Mat3_setRows(currNormal,currOri1,cross(currNormal,currOri1));
+	currOri=Mat3_orthonorm_r0(currOri);
+	Vec3 midContPt=.5*(prevContPt+contPt), midPos1=pos1-vel1*dt/2., midPos2=pos2-vel2*dt/2.;
+	Vec3 c1x=midContPt-midPos1, c2x=midContPt-midPos2;
+	Vec3 relVel=(vel2+cross(angVel2,c2x))-(vel1+cross(angVel1,c1x));
+	// update contact
+	c->pos=contPt;
+	c->ori=currOri;
+	c->geom.l6g.vel=Mat3_multV(midOri,relVel);
+	c->geom.l6g.angVel=Mat3_multV(midOri,angVel2-angVel1);
+	c->geom.l6g.uN=uN;
+}
+
+// #define GEOM_L1GEOM
+
 kernel void contCompute(global const struct Scene* scene, global const struct Particle* par, global struct Contact* con){
 	global struct Contact *c=&(con[get_global_id(0)]);
 	global const struct Particle* p1=&(par[c->ids.s0]);
 	global const struct Particle* p2=&(par[c->ids.s1]);
 	/* create geometry for new contacts */
-	if(con_geomT_get(c)==0){
-		con_geomT_set(c,Geom_L1Geom); c->geom.l1g=L1Geom_new();
-	}
-	/* update geometry */
-	switch (SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2))){
-		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere): {
-			//assert(con_geomT_get(c)==Geom_L1Geom);
-			global struct L1Geom* l1g=&(c->geom.l1g);
-			Real r1=p1->shape.sphere.radius, r2=p2->shape.sphere.radius;
-			Real dist=distance(p1->pos,p2->pos);
-			Vec3 normal=(p2->pos-p1->pos)/dist;
-			l1g->uN=dist-(r1+r2);
-			#if 0
-			if(c->ids.s0==0){
-				for (size_t i=0; i<sizeof(double); i++) { printf("%02x ",((global unsigned char*)&(p1->shape.sphere.radius))[i]); }
-				printf("\n");
-				for (size_t i=0; i<sizeof(struct Sphere); i++) {printf("%02x ",((global unsigned char*)&(p1->shape.sphere))[i]); }
-				printf("\n");
-				for (size_t i=0; i<sizeof(struct Particle); i++) {  if(i>0 && (i%8)==0) printf("  "); if(i>0 && (i%32)==0) printf("\n");  printf("%02x ",((global unsigned char*)p1)[i]); }
-				//printf("sizes %ld %ld %ld",sizeof(double),sizeof(struct Sphere),sizeof(struct Particle));
-				printf("\n=============================== -------------- ==========================\n");
-			}
-			// l1g->uN=*(global float*)((global char*)(&p1->shape.sphere.radius)+4);
-			// printf("r1=%g, %g, %p\n",r1,p1->shape.sphere.radius,(global void*)&(p1->shape.sphere.radius));
-			#endif
-			c->pos=p1->pos+(r1+.5*l1g->uN)*normal;
-			c->ori=Mat3_rot_setYZ(normal);
+	#ifdef GEOM_L1GEOM
+		if(con_geomT_get(c)==0){
+			con_geomT_set(c,Geom_L1Geom); c->geom.l1g=L1Geom_new();
 		}
-		default: /* signal error */ ;
-	}
+		switch (SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2))){
+			case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere): {
+				//assert(con_geomT_get(c)==Geom_L1Geom);
+				global struct L1Geom* l1g=&(c->geom.l1g);
+				Real r1=p1->shape.sphere.radius, r2=p2->shape.sphere.radius;
+				Real dist=distance(p1->pos,p2->pos);
+				Vec3 normal=(p2->pos-p1->pos)/dist;
+				l1g->uN=dist-(r1+r2);
+				c->pos=p1->pos+(r1+.5*l1g->uN)*normal;
+				c->ori=Mat3_rot_setYZ(normal);
+			}
+			default: /* error */ ;
+		}
+	#else
+		switch(SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2))){
+			case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
+				Real r1=p1->shape.sphere.radius, r2=p2->shape.sphere.radius;
+				Real dist=distance(p1->pos,p2->pos);
+				Vec3 normal=(p2->pos-p1->pos)/dist;
+				Real uN=dist-(r1+r2);
+				Vec3 contPt=p1->pos+(r1+.5*uN)*normal;
+				computeL6GeomGeneric(c,p1->pos,p1->vel,p1->angVel,p2->pos,p2->vel,p2->angVel,normal,contPt,uN,r1,r2,scene->dt);
+			}
+			default: /* signal error */ ;
+		}
+	#endif
 	/* update physical params: only if there are no physical params yet */
 	if(con_physT_get(c)==0){
 		int matId1=par_matId_get(p1), matId2=par_matId_get(p2);
@@ -370,9 +416,10 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 				Real r1=(par_shapeT_get(p1)==Shape_Sphere?p1->shape.sphere.radius:INFINITY);
 				Real r2=(par_shapeT_get(p2)==Shape_Sphere?p2->shape.sphere.radius:INFINITY);
 				Real d1=(par_shapeT_get(p1)==Shape_Sphere?p1->shape.sphere.radius:0);
-				Real d2=(par_shapeT_get(p2)==Shape_Sphere?p2->shape.sphere.radius:0);
-				Real A=M_PI*min(r1,r2);
-				c->phys.normPhys.kN=1/(A/(m1->mat.elast.young*d1)+A/(m2->mat.elast.young*d2));
+				Real d2=(par_shapeT_get(p1)==Shape_Sphere?p2->shape.sphere.radius:0);
+				Real A=M_PI*min(r1,r2)*min(r1,r2);
+				// HACK: .5 is to be removed
+				c->phys.normPhys.kN=.5*1/(d1/(A*m1->mat.elast.young)+d2/(A*m2->mat.elast.young/d2));
 			}
 			default: /* error */ ;
 		}
@@ -383,6 +430,19 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 		case GEOMT_PHYST_COMBINE(Geom_L1Geom,Phys_NormPhys):
 			c->force=(Vec3)(c->geom.l1g.uN*c->phys.normPhys.kN,0,0);
 			c->torque=(Vec3)0.;
+		case GEOMT_PHYST_COMBINE(Geom_L6Geom,Phys_NormPhys):{
+			// [ HACK: this will be removed once the params are in the material
+			const Real ktDivKn=.2;
+			// const Real l=(par_shapeT_get(p2)==Shape_Sphere?p2->shape.sphere.radius:1.);
+			Real charLen=INFINITY;
+			// ]
+			Vec3 kntt=(Vec3)(c->phys.normPhys.kN,c->phys.normPhys.kN*ktDivKn,c->phys.normPhys.kN*ktDivKn);
+			Vec3 ktbb=kntt/charLen;
+			c->force+=scene->dt*c->geom.l6g.vel*kntt;
+			c->torque+=scene->dt*c->geom.l6g.angVel*ktbb;
+			// set this directly
+			((Real*)&c->force)[0]=c->phys.normPhys.kN*c->geom.l6g.uN;
+		}
 		default: /* error */ ;
 	}
 }

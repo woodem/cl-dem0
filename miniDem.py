@@ -23,7 +23,8 @@ for clss in ('Scene','ElastMat','Particle','Sphere','Contact','L1Geom','NormPhys
 Simulation=_miniDem.Simulation
 
 # utility functions here
-def mkSphere(pos,radius,rho,matId=0,fixed=False):
+def mkSphere(pos,radius,sim,matId=0,fixed=False):
+	rho=sim.scene.materials[matId].density
 	mass=rho*(4/3.)*math.pi*radius**3
 	inert=mass*(2/5.)*radius**2
 	return Particle(pos=pos,mass=mass,inertia=(inert,inert,inert),dofs=0 if fixed else 63,shape=Sphere(radius=radius),matId=matId)
@@ -36,10 +37,11 @@ def briefOutput():
 def showSim(sim):
 	print 'At step %d (t=%g), Δt=%g'%(sim.scene.step,sim.scene.t,sim.scene.dt)
 	for i,p in enumerate(sim.par):
-		print '#%d x=%s; v=%s'%(i,p.pos,p.vel)
+		print '#%d x=%s; v=%s, F=%s, T=%s'%(i,p.pos,p.vel,p.force,p.torque)
 	for c in sim.con:
-		print '##%d+%d: p=%s'%(c.ids[0],c.ids[1],c.pos)
-		if c.geom: print '\tgeomT=%d, uN=%g, rot=%s'%(c.geomT,c.geom.uN,c.ori)
-		if c.phys: print '\tphysT=%d, kN=%g, F=%s'%(c.physT,c.phys.kN,c.force)
+		print '##%d+%d: p=%s, F=%s, T=%s, rot=%s'%(c.ids[0],c.ids[1],c.pos,c.force,c.torque,c.ori)
+		if c.geom: print '\tgeomT=%d, uN=%g%s'%(c.geomT,c.geom.uN,', v=%s, ω=%s'%(c.geom.vel,c.geom.angVel) if isinstance(c.geom,_miniDem.L6Geom) else '')
+		if c.phys: print '\tphysT=%d, kN=%g'%(c.physT,c.phys.kN)
+Simulation.show=showSim
 
 

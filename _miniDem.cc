@@ -25,8 +25,6 @@ namespace boost {
 using std::vector;
 using boost::lexical_cast;
 using std::string;
-
-
 #include<eigen3/Eigen/Core>
 #include<eigen3/Eigen/Geometry>
 /* miniEigen types */
@@ -56,7 +54,7 @@ typedef Eigen::Quaternion<Real> Quaternionr;
 #define __CL_ENABLE_EXCEPTIONS
 #include"cl.hpp"
 
-
+namespace minidem{
 
 #include"scene.cl"
 
@@ -111,6 +109,7 @@ py::object Contact_geom_get(Contact* c){
 	switch(geomT){
 		case 0: return py::object();
 		case Geom_L1Geom: return py::object(c->geom.l1g);
+		case Geom_L6Geom: return py::object(c->geom.l6g);
 		default: throw std::runtime_error("Contact has geom with unknown index "+lexical_cast<string>(geomT));
 	}
 }
@@ -147,11 +146,11 @@ struct Simulation{
 	cl::CommandQueue queue;
 	cl::Program program;
 
-	Simulation(int pNum=-1,int dNum=-1){
+	Simulation(int pNum=-1,int dNum=-1, bool useL1Geom=true){
 		scene=Scene_new();
-		initCl(pNum,dNum);
+		initCl(pNum,dNum,useL1Geom);
 	}
-	void initCl(int pNum, int dNum){
+	void initCl(int pNum, int dNum, bool useL1Geom){
 		std::vector<cl::Platform> platforms;
 		std::vector<cl::Device> devices;
 		cl::Platform::get(&platforms);
@@ -182,7 +181,9 @@ struct Simulation{
 		cl::Program::Sources source(1,std::make_pair(src,std::string(src).size()));
 		program=cl::Program(context,source);
 		try{
-			program.build(std::vector<cl::Device>({device}),"-I.",NULL,NULL);
+			string opts("-I.");
+			if(useL1Geom) opts+=" -DGEOM_L1GEOM";
+			program.build(std::vector<cl::Device>({device}),opts.c_str(),NULL,NULL);
 		}catch(cl::Error& e){
 			std::cerr<<"Error building source. Build log follows."<<std::endl;
 			std::cerr<<program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device)<<std::endl;
@@ -214,6 +215,24 @@ struct Simulation{
 		queue.enqueueReadBuffer(sceneBuf,CL_TRUE,0,sizeof(Scene),&scene);
 		queue.enqueueReadBuffer(parBuf,CL_TRUE,0,sizeof(Particle)*par.size(),&(par[0]));
 		queue.enqueueReadBuffer(conBuf,CL_TRUE,0,sizeof(Contact )*con.size(),&(con[0]));
+	}
+	Real pWaveDt(){
+		Real ret=INFINITY;
+		for(size_t i=0; i<par.size(); i++){
+			const Particle& p(par[i]);
+			int matId=par_matId_get(&p);
+			if(matId<0 || matId>=SCENE_NUM_MAT) throw std::runtime_error("#"+lexical_cast<string>(i)+" has matId our of range 0.."+lexical_cast<string>(SCENE_NUM_MAT)+".");
+			if(par_shapeT_get(&p)!=Shape_Sphere) continue;
+			const Material& m=scene.materials[matId];
+			if(mat_matT_get(&m)==0) throw std::runtime_error("#"+lexical_cast<string>(i)+" references void matId "+lexical_cast<string>(matId));
+			Real density, young;
+			switch(mat_matT_get(&m)){
+				case Mat_ElastMat: density=m.mat.elast.density; young=m.mat.elast.young; break;
+				default: throw std::runtime_error("Material "+lexical_cast<string>(matId)+" contains unhandled matT "+lexical_cast<string>(mat_matT_get(&m)));
+			}
+			ret=std::min(ret,p.shape.sphere.radius/sqrt(young/density));
+		}
+		return ret;
 	}
 	#ifdef MINIDEM_VTK
 		py::list saveVtk(string prefix, bool compress=true, bool ascii=false){
@@ -292,6 +311,8 @@ struct Simulation{
 					fN->InsertNextValue(c.force[0]); // in local coords
 					// RTTI
 					if(con_geomT_get(&c)==Geom_L1Geom){ uN->InsertNextValue(c.geom.l1g.uN); }
+					else if(con_geomT_get(&c)==Geom_L1Geom){ uN->InsertNextValue(c.geom.l6g.uN); }
+					//
 					if(con_physT_get(&c)==Phys_NormPhys){ kN->InsertNextValue(c.phys.normPhys.kN); }
 				}
 				auto poly=vtkSmartPointer<vtkPolyData>::New();
@@ -376,6 +397,10 @@ struct custom_clType_from_eigType{
 };
 
 
+}; // namespace minidem
+
+using namespace minidem;
+
 BOOST_PYTHON_MODULE(_miniDem){
 	/*
 	NOTE:
@@ -398,12 +423,13 @@ BOOST_PYTHON_MODULE(_miniDem){
 	#define PY_RW(clss,attr) def_readwrite(BOOST_PP_STRINGIZE(attr),&clss::attr)
 
 
-	py::class_<Simulation>("Simulation",py::init<int,int>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1)))
+	py::class_<Simulation>("Simulation",py::init<int,int,bool>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1,py::arg("useL1Geom")=true)))
 		.PY_RW(Simulation,scene)
 		.PY_RW(Simulation,par)
 		.PY_RW(Simulation,con)
 		.def("run",&Simulation::run)
 		.def("saveVtk",&Simulation::saveVtk,(py::arg("prefix"),py::arg("compress")=true,py::arg("ascii")=false))
+		.def("pWaveDt",&Simulation::pWaveDt)
 	;
 	py::class_<Scene>("Scene").def("__init__",Scene_new)
 		.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,step).PY_RWV(Scene,gravity).PY_RWV(Scene,damping)
@@ -437,8 +463,9 @@ BOOST_PYTHON_MODULE(_miniDem){
 	;
 	// "derived" classes (union members)
 	py::class_<Sphere>("Sphere").def("__init__",Sphere_new).PY_RW(Sphere,radius);
-	py::class_<ElastMat>("ElastMat").def("__init__",ElastMat_new).PY_RW(ElastMat,young);
+	py::class_<ElastMat>("ElastMat").def("__init__",ElastMat_new).PY_RW(ElastMat,density).PY_RW(ElastMat,young);
 	py::class_<L1Geom>("L1Geom").def("__init__",L1Geom_new).PY_RW(L1Geom,uN);
+	py::class_<L6Geom>("L6Geom").def("__init__",L6Geom_new).PY_RWV(L6Geom,uN).PY_RWV(L6Geom,vel).PY_RWV(L6Geom,angVel);
 	py::class_<NormPhys>("NormPhys").def("__init__",NormPhys_new).PY_RW(NormPhys,kN);
 
 	#define VECTOR_SEQ_CONV(Type) custom_vector_from_seq<Type>();  py::to_python_converter<std::vector<Type>, custom_vector_to_list<Type> >();
