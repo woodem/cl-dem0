@@ -37,9 +37,9 @@
 
 #ifdef __cplusplus
 	#include<cstring>
-	#define UNION_EMPTY_CTOR(a) a(){}; a(const a& _b){ memcpy(this,&_b,sizeof(a));}; a& operator=(const a& _b){ memcpy(this,&_b,sizeof(a)); return *this; };
+	#define UNION_BITWISE_CTORS(a) a(){}; a(const a& _b){ memcpy(this,&_b,sizeof(a));}; a& operator=(const a& _b){ memcpy(this,&_b,sizeof(a)); return *this; };
 #else
-	#define UNION_EMPTY_CTOR(a)
+	#define UNION_BITWISE_CTORS(a)
 #endif
 
 
@@ -162,7 +162,7 @@ struct Contact{
 	Mat3 ori;
 	Vec3 force, torque;
 	union _gg {
-		UNION_EMPTY_CTOR(_gg)
+		UNION_BITWISE_CTORS(_gg)
 		struct L1Geom l1g;
 		struct L6Geom l6g;
 	}  AMD_UNION_ALIGN_BUG_WORKAROUND() geom;
@@ -248,7 +248,7 @@ struct Scene Scene_new(){
 	struct Scene s;
 	s.t=0;
 	s.dt=1e-8;
-	s.step=0;
+	s.step=-1;
 	s.gravity=Vec3_set(0,0,0);
 	s.damping=0.;
 	// no materials
@@ -264,7 +264,9 @@ kernel void integrator (global struct Scene* scene, global struct Particle* par)
 kernel void contCompute(global const struct Scene*, global const struct Particle* par, global struct Contact* con);
 
 kernel void nextTimestep(global struct Scene* scene){
-	scene->t+=scene->dt;
+	// if step is -1, we are at the very beginning
+	// keep time at 0, only increase step number
+	if(scene->step>0) scene->t+=scene->dt;
 	scene->step++;
 }
 
@@ -285,9 +287,9 @@ kernel void forcesToParticles(global const struct Scene* scene, global struct Pa
 	LOCK(&p1->mutex);
 		p1->force+=Fp1; p1->torque+=Tp1;
 	UNLOCK(&p1->mutex);
-	LOCK(&p1->mutex);
+	LOCK(&p2->mutex);
 		p2->force+=Fp2; p2->torque+=Tp2;
-	UNLOCK(&p1->mutex);
+	UNLOCK(&p2->mutex);
 }
 
 kernel void integrator(global struct Scene* scene, global struct Particle* par){
@@ -304,8 +306,9 @@ kernel void integrator(global struct Scene* scene, global struct Particle* par){
 	}
 #else
 	// use vector ops for particles free in all 3 dofs, and on-eby-one only for those which are partially fixed
+	p->force+=scene->gravity*p->mass; // put this up here so that grav appears in the force term
 	if((dofs&par_dofs_trans)==par_dofs_trans){ // all translations possible, use vector expr
-		accel+=p->force/p->mass+scene->gravity; // ((Real*)(&accel))[2]=0;
+		accel+=p->force/p->mass;
 	} else {
 		for(int ax=0; ax<3; ax++){
 			if(dofs & dof_axis(ax,false)) ((Real*)(&accel))[ax]+=((global Real*)(&(p->force)))[ax]/p->mass+((global Real*)(&(scene->gravity)))[ax];
@@ -321,6 +324,9 @@ kernel void integrator(global struct Scene* scene, global struct Particle* par){
 		}
 	}
 #endif
+	#ifdef DUMP_INTEGRATOR
+		if(dofs!=0) printf("$%ld/%d: v=%v3g, ω=%v3g, F=%v3g, T=%v3g, a=%v3g",scene->step,get_global_id(0),p->vel,p->angVel,p->force,p->torque,accel);
+	#endif
 	if(scene->damping!=0){
 		accel   =accel   *(1-scene->damping*sign(p->force *(p->vel   +accel   *scene->dt/2)));
 		angAccel=angAccel*(1-scene->damping*sign(p->torque*(p->angVel+angAccel*scene->dt/2)));
@@ -328,8 +334,12 @@ kernel void integrator(global struct Scene* scene, global struct Particle* par){
 	p->vel+=accel*scene->dt;
 	p->angVel+=angAccel*scene->dt;
 	p->pos+=p->vel*scene->dt;
+	#ifdef DUMP_INTEGRATOR
+		if(dofs!=0) printf(", aDamp=%v3g, vNew=%v3g, posNew=%v3g\n",accel,p->vel,p->pos);
+	#endif
 	p->ori=Quat_multQ(Quat_fromRotVec(p->angVel*scene->dt),p->ori);
 	//
+	// reset forces on particles
 	p->force=p->torque=(Vec3)0.;
 }
 
@@ -418,8 +428,8 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 				Real d1=(par_shapeT_get(p1)==Shape_Sphere?p1->shape.sphere.radius:0);
 				Real d2=(par_shapeT_get(p1)==Shape_Sphere?p2->shape.sphere.radius:0);
 				Real A=M_PI*min(r1,r2)*min(r1,r2);
-				// HACK: .5 is to be removed
-				c->phys.normPhys.kN=.5*1/(d1/(A*m1->mat.elast.young)+d2/(A*m2->mat.elast.young/d2));
+				c->phys.normPhys.kN=1./(d1/(A*m1->mat.elast.young)+d2/(A*m2->mat.elast.young));
+				// printf("d1=%f, d2=%f, A=%f, E1=%f, E2=%f, kN=%f\n",d1,d2,A,m1->mat.elast.young,m2->mat.elast.young,c->phys.normPhys.kN);
 			}
 			default: /* error */ ;
 		}
@@ -441,7 +451,7 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 			c->force+=scene->dt*c->geom.l6g.vel*kntt;
 			c->torque+=scene->dt*c->geom.l6g.angVel*ktbb;
 			// set this directly
-			((Real*)&c->force)[0]=c->phys.normPhys.kN*c->geom.l6g.uN;
+			((global Real*)&(c->force))[0]=c->phys.normPhys.kN*c->geom.l6g.uN;
 		}
 		default: /* error */ ;
 	}
