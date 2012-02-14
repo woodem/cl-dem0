@@ -279,7 +279,7 @@ kernel void forcesToParticles(global const struct Scene* scene, global struct Pa
 	/* how to synchronize access to particles? */
 	global const struct Contact* c=&(con[get_global_id(0)]);
 	global struct Particle *p1=&(par[c->ids.x]), *p2=&(par[c->ids.y]);
-	Mat3 R_T=c->ori;
+	Mat3 R_T=Mat3_transpose(c->ori);
 	Vec3 Fp1=+Mat3_multV(R_T,c->force);
 	Vec3 Fp2=-Mat3_multV(R_T,c->force);
 	Vec3 Tp1=+cross(c->pos-p1->pos,Mat3_multV(R_T,c->force))+Mat3_multV(R_T,c->torque);
@@ -293,7 +293,6 @@ kernel void forcesToParticles(global const struct Scene* scene, global struct Pa
 }
 
 kernel void integrator(global struct Scene* scene, global struct Particle* par){
-	if(scene->step==0) return;
 	global struct Particle *p=&(par[get_global_id(0)]);
 	int dofs=par_dofs_get(p);
 	Vec3 accel=0., angAccel=0.;
@@ -337,7 +336,7 @@ kernel void integrator(global struct Scene* scene, global struct Particle* par){
 	#ifdef DUMP_INTEGRATOR
 		if(dofs!=0) printf(", aDamp=%v3g, vNew=%v3g, posNew=%v3g\n",accel,p->vel,p->pos);
 	#endif
-	p->ori=Quat_multQ(Quat_fromRotVec(p->angVel*scene->dt),p->ori);
+	p->ori=Quat_multQ(Quat_fromRotVec(p->angVel*scene->dt),p->ori); // checks automatically whether |rotVec|==0
 	//
 	// reset forces on particles
 	p->force=p->torque=(Vec3)0.;
@@ -358,12 +357,13 @@ void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 
 	Vec3 normRotVec=cross(prevNormal,currNormal);
 	Vec3 midNormal=normalize(.5*(prevNormal+currNormal));
 	Vec3 normTwistVec=midNormal*dt*.5*dot(midNormal,angVel1+angVel2);
-	Mat3 prevOri=c->ori;
-	Vec3 midOri1=Mat3_row(prevOri,1)-.5*cross(Mat3_row(prevOri,1),normRotVec+normTwistVec);
+	Vec3 prevOri1=Mat3_row(c->ori,1);
+	Vec3 midOri1=prevOri1-.5*cross(prevOri1,normRotVec+normTwistVec);
 	Mat3 midOri=Mat3_setRows(midNormal,midOri1,cross(midNormal,midOri1));
-	Vec3 currOri1=Mat3_row(prevOri,1)-cross(midOri1,normRotVec+normTwistVec);
+	//midOri=Mat3_orthonorm_row0(midOri); // not clear how much difference this one makes
+	Vec3 currOri1=prevOri1-cross(midOri1,normRotVec+normTwistVec);
 	Mat3 currOri=Mat3_setRows(currNormal,currOri1,cross(currNormal,currOri1));
-	currOri=Mat3_orthonorm_r0(currOri);
+	currOri=Mat3_orthonorm_row0(currOri);
 	Vec3 midContPt=.5*(prevContPt+contPt), midPos1=pos1-vel1*dt/2., midPos2=pos2-vel2*dt/2.;
 	Vec3 c1x=midContPt-midPos1, c2x=midContPt-midPos2;
 	Vec3 relVel=(vel2+cross(angVel2,c2x))-(vel1+cross(angVel1,c1x));
@@ -396,6 +396,7 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 				l1g->uN=dist-(r1+r2);
 				c->pos=p1->pos+(r1+.5*l1g->uN)*normal;
 				c->ori=Mat3_rot_setYZ(normal);
+				break;
 			}
 			default: /* error */ ;
 		}
@@ -408,6 +409,7 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 				Real uN=dist-(r1+r2);
 				Vec3 contPt=p1->pos+(r1+.5*uN)*normal;
 				computeL6GeomGeneric(c,p1->pos,p1->vel,p1->angVel,p2->pos,p2->vel,p2->angVel,normal,contPt,uN,r1,r2,scene->dt);
+				break;
 			}
 			default: /* signal error */ ;
 		}
@@ -430,6 +432,7 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 				Real A=M_PI*min(r1,r2)*min(r1,r2);
 				c->phys.normPhys.kN=1./(d1/(A*m1->mat.elast.young)+d2/(A*m2->mat.elast.young));
 				// printf("d1=%f, d2=%f, A=%f, E1=%f, E2=%f, kN=%f\n",d1,d2,A,m1->mat.elast.young,m2->mat.elast.young,c->phys.normPhys.kN);
+				break;
 			}
 			default: /* error */ ;
 		}
@@ -440,11 +443,17 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 		case GEOMT_PHYST_COMBINE(Geom_L1Geom,Phys_NormPhys):
 			c->force=(Vec3)(c->geom.l1g.uN*c->phys.normPhys.kN,0,0);
 			c->torque=(Vec3)0.;
+			break;
 		case GEOMT_PHYST_COMBINE(Geom_L6Geom,Phys_NormPhys):{
+			#ifndef BEND_CHARLEN
+				#define BEND_CHARLEN INFINITY
+			#endif
+			#ifndef SHEAR_KT_DIV_KN
+				#define SHEAR_KT_DIV_KN 0.
+			#endif
 			// [ HACK: this will be removed once the params are in the material
-			const Real ktDivKn=.2;
-			// const Real l=(par_shapeT_get(p2)==Shape_Sphere?p2->shape.sphere.radius:1.);
-			Real charLen=INFINITY;
+			Real charLen=BEND_CHARLEN;
+			const Real ktDivKn=SHEAR_KT_DIV_KN;
 			// ]
 			Vec3 kntt=(Vec3)(c->phys.normPhys.kN,c->phys.normPhys.kN*ktDivKn,c->phys.normPhys.kN*ktDivKn);
 			Vec3 ktbb=kntt/charLen;
@@ -452,6 +461,7 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 			c->torque+=scene->dt*c->geom.l6g.angVel*ktbb;
 			// set this directly
 			((global Real*)&(c->force))[0]=c->phys.normPhys.kN*c->geom.l6g.uN;
+			break;
 		}
 		default: /* error */ ;
 	}

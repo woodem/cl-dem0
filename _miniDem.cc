@@ -71,6 +71,7 @@ py::object Material_mat_get(const Material* m){
 }
 
 void Material_mat_set(Material *m, py::object mat){
+	if(mat==py::object()){ mat_matT_set(m,0); return; }
 	py::extract<ElastMat> elast(mat);
 	if(elast.check()){ m->mat.elast=elast(); mat_matT_set(m,Mat_ElastMat); }
 	else throw std::runtime_error("Unknown mat object.");
@@ -96,6 +97,7 @@ py::object Particle_shape_get(Particle* p){
 	}
 }
 void Particle_shape_set(Particle *p, py::object sh){
+	if(sh==py::object()){ par_shapeT_set(p,0); return; }
 	py::extract<Sphere> sphere(sh);
 	if(sphere.check()){
 		p->shape.sphere=sphere();
@@ -115,6 +117,7 @@ py::object Contact_geom_get(Contact* c){
 }
 
 void Contact_geom_set(Contact *c,py::object g){
+	if(g==py::object()){ con_geomT_set(c,0); return; }
 	py::extract<L1Geom> l1g(g);
 	if(l1g.check()){ c->geom.l1g=l1g(); con_geomT_set(c,Geom_L1Geom); }
 	else throw std::runtime_error("Unknown geom object.");
@@ -130,6 +133,7 @@ py::object Contact_phys_get(Contact* c){
 }
 
 void Contact_phys_set(Contact *c,py::object p){
+	if(p==py::object()){ con_physT_set(c,0); return; }
 	py::extract<NormPhys> np(p);
 	if(np.check()){ c->phys.normPhys=np(); con_geomT_set(c,Phys_NormPhys); }
 	else throw std::runtime_error("Unknown geom object.");
@@ -146,11 +150,11 @@ struct Simulation{
 	cl::CommandQueue queue;
 	cl::Program program;
 
-	Simulation(int pNum=-1,int dNum=-1, bool useL1Geom=true){
+	Simulation(int pNum=-1,int dNum=-1, const string& opts=""){
 		scene=Scene_new();
-		initCl(pNum,dNum,useL1Geom);
+		initCl(pNum,dNum,opts);
 	}
-	void initCl(int pNum, int dNum, bool useL1Geom){
+	void initCl(int pNum, int dNum, const string& opts){
 		std::vector<cl::Platform> platforms;
 		std::vector<cl::Device> devices;
 		cl::Platform::get(&platforms);
@@ -181,9 +185,9 @@ struct Simulation{
 		cl::Program::Sources source(1,std::make_pair(src,std::string(src).size()));
 		program=cl::Program(context,source);
 		try{
-			string opts("-I.");
-			if(useL1Geom) opts+=" -DGEOM_L1GEOM";
-			program.build(std::vector<cl::Device>({device}),opts.c_str(),NULL,NULL);
+			string opts2(opts+" -I.");
+			std::cerr<<"** compile with otions: "<<opts2<<endl;
+			program.build(std::vector<cl::Device>({device}),opts2.c_str(),NULL,NULL);
 		}catch(cl::Error& e){
 			std::cerr<<"Error building source. Build log follows."<<std::endl;
 			std::cerr<<program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device)<<std::endl;
@@ -423,7 +427,7 @@ BOOST_PYTHON_MODULE(_miniDem){
 	#define PY_RW(clss,attr) def_readwrite(BOOST_PP_STRINGIZE(attr),&clss::attr)
 
 
-	py::class_<Simulation>("Simulation",py::init<int,int,bool>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1,py::arg("useL1Geom")=true)))
+	py::class_<Simulation>("Simulation",py::init<int,int,string>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1,py::arg("opts")="")))
 		.PY_RW(Simulation,scene)
 		.PY_RW(Simulation,par)
 		.PY_RW(Simulation,con)
