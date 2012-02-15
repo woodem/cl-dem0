@@ -202,8 +202,7 @@ struct Contact Contact_new(){
 	return c;
 }
 
-//int shapeT_combine2(int sh1, int sh2){ return sh1 & sh2<<(par_flag_shapeT.y); }
-//int geomT_physT_combine2(int g, int p){ return g & p<<(con_flag_physT.y); }
+// must be macros so that they can be used as switch cases
 #define SHAPET2_COMBINE(s1,s2) ((s1) | (s2)<<(PAR_LEN_shapeT))
 #define GEOMT_PHYST_COMBINE(g,p) ((g) | (p)<<(CON_LEN_geomT))
 
@@ -233,16 +232,34 @@ MATERIAL_FLAG_GET_SET(matT);
 // int matT_combine2(int m1, int m2){ return m1 & m2<<(mat_flag_matT.y); }
 #define MATT2_COMBINE(m1,m2) ((m1) | (m2)<<(MAT_LEN_matT))
 
-#define SCENE_NUM_MAT 8
 
+enum _energy{ENERGY_Ekt=0,ENERGY_Ekr,ENERGY_grav,ENERGY_damp,ENERGY_elast,SCENE_ENERGY_NUM };
+struct  EnergyProperties {
+	const char name[16];
+	long int index; /* ! must be long, AMD otherwise reads garbage for incremental?! !! */ 
+	bool incremental;
+};
+constant struct EnergyProperties energyDefinitions[]={
+	{"Ekt",  ENERGY_Ekt,  false},
+	{"Ekr",  ENERGY_Ekt,  false},
+	{"grav", ENERGY_grav, true }, 
+	{"damp", ENERGY_damp, true },
+	{"elast",ENERGY_elast,false},
+};
+
+
+#define SCENE_MAT_NUM 8
 struct Scene{
 	Real t;
 	Real dt;
 	long step;
 	Vec3 gravity;
 	Real damping;
-	struct Material materials[SCENE_NUM_MAT];
+	struct Material materials[SCENE_MAT_NUM];
+	float energy[SCENE_ENERGY_NUM];
+	int energyMutex[SCENE_ENERGY_NUM]; // use mutexes until atomics work for floats
 };
+
 
 struct Scene Scene_new(){
 	struct Scene s;
@@ -252,27 +269,60 @@ struct Scene Scene_new(){
 	s.gravity=Vec3_set(0,0,0);
 	s.damping=0.;
 	// no materials
-	for(int i=0; i<SCENE_NUM_MAT; i++) mat_matT_set_local(&s.materials[i],0); 
+	for(int i=0; i<SCENE_MAT_NUM; i++) mat_matT_set_local(&s.materials[i],0); 
+	//Scene_energyReset(&s): but the pointer is not global, copy here instead
+	for(int i=0; i<SCENE_ENERGY_NUM; i++){ s.energy[i]=0; s.energyMutex[i]=0; }
 	return s;
+}
+
+// exposed to python, hence must be visible to the host
+void Scene_energyReset(global struct Scene* s){
+	for(int i=0; i<SCENE_ENERGY_NUM; i++) s->energy[i]=0;
 }
 
 #ifdef __OPENCL_VERSION__
 
+#define TRYLOCK(a) atom_cmpxchg(a,0,1)
+#define LOCK(a) while(TRYLOCK(a))
+#define UNLOCK(a) atom_xchg(a,0)
+
+#ifdef TRACK_ENERGY
+	#define ADD_ENERGY(scene,name,E) Scene_energyAdd(scene,ENERGY_##name,E);
+#else
+	#define ADD_ENERGY(scene,name,E)
+#endif
+
+void Scene_energyAdd(global struct Scene* scene, int energyIndex, Real E){
+	//atomic_add(&(scene->energy[energyIndex]),(float)E);
+	global int* mutex=&(scene->energyMutex[energyIndex]);
+	LOCK(mutex);
+	scene->energy[energyIndex]+=(float)E;
+	UNLOCK(mutex);
+}
+void Scene_energyZeroNonincremental(global struct Scene* scene){
+	// reset non-incremental energies
+	//printf("[");
+	for(int i=0; i<SCENE_ENERGY_NUM; i++){
+		//printf("%d ",(int)energyDefinitions[i].incremental);
+		if(!energyDefinitions[i].incremental) scene->energy[i]=0.;
+	}
+	//printf("]\n");
+}
+
 kernel void nextTimestep(global struct Scene* scene);
 kernel void forcesToParticles(global const struct Scene* scene, global struct Particle* par, global const struct Contact* con);
 kernel void integrator (global struct Scene* scene, global struct Particle* par);
-kernel void contCompute(global const struct Scene*, global const struct Particle* par, global struct Contact* con);
+kernel void contCompute(global struct Scene*, global const struct Particle* par, global struct Contact* con);
 
 kernel void nextTimestep(global struct Scene* scene){
 	// if step is -1, we are at the very beginning
 	// keep time at 0, only increase step number
 	if(scene->step>0) scene->t+=scene->dt;
 	scene->step++;
+	#ifdef TRACK_ENERGY
+		Scene_energyZeroNonincremental(scene);
+	#endif
 }
-
-#define TRYLOCK(a) atom_cmpxchg(a,0,1)
-#define LOCK(a) while(TRYLOCK(a))
-#define UNLOCK(a) atom_xchg(a,0)
 
 kernel void forcesToParticles(global const struct Scene* scene, global struct Particle* par, global const struct Contact* con){
 	//if(scene->step==0) return;
@@ -304,8 +354,13 @@ kernel void integrator(global struct Scene* scene, global struct Particle* par){
 		if(dofs & dof_axis(ax,true ))	((Real*)(&angAccel))[ax]+=((Real*)(&p->torque))[ax]/p->inertia.x;
 	}
 #else
+
 	// use vector ops for particles free in all 3 dofs, and on-eby-one only for those which are partially fixed
 	p->force+=scene->gravity*p->mass; // put this up here so that grav appears in the force term
+
+	// some translations are allowed, compute gravity contribution
+	if((dofs & par_dofs_trans)!=0) ADD_ENERGY(scene,grav,-dot(scene->gravity,p->vel)*p->mass*scene->dt);
+
 	if((dofs&par_dofs_trans)==par_dofs_trans){ // all translations possible, use vector expr
 		accel+=p->force/p->mass;
 	} else {
@@ -327,9 +382,16 @@ kernel void integrator(global struct Scene* scene, global struct Particle* par){
 		if(dofs!=0) printf("$%ld/%d: v=%v3g, ω=%v3g, F=%v3g, T=%v3g, a=%v3g",scene->step,get_global_id(0),p->vel,p->angVel,p->force,p->torque,accel);
 	#endif
 	if(scene->damping!=0){
+		ADD_ENERGY(scene,damp,(dot(fabs(p->vel),fabs(p->force))+dot(fabs(p->angVel),fabs(p->torque)))*scene->damping*scene->dt);
 		accel   =accel   *(1-scene->damping*sign(p->force *(p->vel   +accel   *scene->dt/2)));
 		angAccel=angAccel*(1-scene->damping*sign(p->torque*(p->angVel+angAccel*scene->dt/2)));
 	}
+
+	// this estimates velocity at next on-step using current accel; it follows how yade computes it currently
+	ADD_ENERGY(scene,Ekt,.5*p->mass*Vec3_sqNorm(p->vel+.5*scene->dt*accel));
+	// valid only for spherical particles (fix later)
+	ADD_ENERGY(scene,Ekr,.5*dot(p->inertia*(p->angVel+.5*scene->dt*angAccel),p->angVel+.5*scene->dt*angAccel));
+
 	p->vel+=accel*scene->dt;
 	p->angVel+=angAccel*scene->dt;
 	p->pos+=p->vel*scene->dt;
@@ -340,6 +402,7 @@ kernel void integrator(global struct Scene* scene, global struct Particle* par){
 	//
 	// reset forces on particles
 	p->force=p->torque=(Vec3)0.;
+
 }
 
 void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, const Real r1, const Real r2, Real dt){
@@ -377,7 +440,7 @@ void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 
 
 // #define GEOM_L1GEOM
 
-kernel void contCompute(global const struct Scene* scene, global const struct Particle* par, global struct Contact* con){
+kernel void contCompute(global struct Scene* scene, global const struct Particle* par, global struct Contact* con){
 	global struct Contact *c=&(con[get_global_id(0)]);
 	global const struct Particle* p1=&(par[c->ids.s0]);
 	global const struct Particle* p2=&(par[c->ids.s1]);
@@ -459,8 +522,16 @@ kernel void contCompute(global const struct Scene* scene, global const struct Pa
 			Vec3 ktbb=kntt/charLen;
 			c->force+=scene->dt*c->geom.l6g.vel*kntt;
 			c->torque+=scene->dt*c->geom.l6g.angVel*ktbb;
-			// set this directly
-			((global Real*)&(c->force))[0]=c->phys.normPhys.kN*c->geom.l6g.uN;
+			((global Real*)&(c->force))[0]=c->phys.normPhys.kN*c->geom.l6g.uN; // set this one directly
+			#ifdef TRACK_ENERGY
+				Real E=.5*pown(c->force.s0,2)/kntt.s0;  // normal stiffness is always non-zero
+				if(kntt.s1!=0.) E+=.5*dot(c->force.s12,c->force.s12/kntt.s12);
+				if(ktbb.s0!=0.) E+=.5*pown(c->torque.s0,2)/ktbb.s0;
+				if(ktbb.s1!=0.) E+=.5*dot(c->torque.s12,c->torque.s12/ktbb.s12);
+				ADD_ENERGY(scene,elast,E);
+				// gives NaN when some stiffness is 0
+				// ADD_ENERGY(scene,elast,.5*dot(c->force,c->force/kntt)+.5*dot(c->torque,c->torque/ktbb));
+			#endif
 			break;
 		}
 		default: /* error */ ;

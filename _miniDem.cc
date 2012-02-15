@@ -84,9 +84,30 @@ py::list Scene_mats_get(Scene* self){
 }
 
 void Scene_mats_set(Scene* self, const py::list mm){
-	if(py::len(mm)>=SCENE_NUM_MAT) throw std::runtime_error("Too many materials, to be defined (maximum "+lexical_cast<string>(SCENE_NUM_MAT)+", given "+lexical_cast<string>(py::len(mm)));
+	if(py::len(mm)>=SCENE_MAT_NUM) throw std::runtime_error("Too many materials, to be defined (maximum "+lexical_cast<string>(SCENE_MAT_NUM)+", given "+lexical_cast<string>(py::len(mm)));
 	for(int i=0; i<py::len(mm); i++){ Material_mat_set(&(self->materials[i]),mm[i]); }
 };
+
+py::dict Scene_energy_get(Scene* self/*, bool omitZero=true*/){
+	const bool omitZero=true;
+	py::dict ret;
+	for(int i=0; i<SCENE_ENERGY_NUM; i++){
+		if(self->energy[i]!=0. || !omitZero) ret[energyDefinitions[i].name]=self->energy[i];
+	}
+	return ret;
+}
+
+Real Scene_energyTotal(Scene* s){
+	Real ret=0;
+	for(int i=0; i<SCENE_ENERGY_NUM; i++) ret+=s->energy[i];
+	return ret;
+}
+
+Real Scene_energyError(Scene* s){
+	Real sum=0,absSum=0;
+	for(int i=0; i<SCENE_ENERGY_NUM; i++){ sum+=s->energy[i]; absSum+=std::abs(s->energy[i]); }
+	return sum/absSum;  // return NaN for absSum==0
+}
 
 py::object Particle_shape_get(Particle* p){
 	int shapeT=par_shapeT_get(p);
@@ -225,7 +246,7 @@ struct Simulation{
 		for(size_t i=0; i<par.size(); i++){
 			const Particle& p(par[i]);
 			int matId=par_matId_get(&p);
-			if(matId<0 || matId>=SCENE_NUM_MAT) throw std::runtime_error("#"+lexical_cast<string>(i)+" has matId our of range 0.."+lexical_cast<string>(SCENE_NUM_MAT)+".");
+			if(matId<0 || matId>=SCENE_MAT_NUM) throw std::runtime_error("#"+lexical_cast<string>(i)+" has matId our of range 0.."+lexical_cast<string>(SCENE_MAT_NUM)+".");
 			if(par_shapeT_get(&p)!=Shape_Sphere) continue;
 			const Material& m=scene.materials[matId];
 			if(mat_matT_get(&m)==0) throw std::runtime_error("#"+lexical_cast<string>(i)+" references void matId "+lexical_cast<string>(matId));
@@ -439,6 +460,10 @@ BOOST_PYTHON_MODULE(_miniDem){
 		.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,step).PY_RWV(Scene,gravity).PY_RWV(Scene,damping)
 		//.PY_RW_BYVALUE(Scene,materials)
 		.add_property("materials",Scene_mats_get,Scene_mats_set)
+		.add_property("energy",Scene_energy_get) //,py::arg("omitZero")=true)
+		.def("energyReset",Scene_energyReset)
+		.def("energyTotal",Scene_energyTotal)
+		.def("energyError",Scene_energyError)
 	;
 	#if 0
 		py::class_<Material>("Material").add_property("mat",Material_mat_get,Material_mat_set);
