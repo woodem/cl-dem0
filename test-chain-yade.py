@@ -20,7 +20,7 @@ useL1Geom,ktDivKn,charLen,dtFrac=(
 	(True,0,None,.2),
 	(False,.2,None,.05),
 	(False,.8,1e5*r,.01),
-)[1] # pick configuration set here
+)[2] # pick configuration set here
 
 sim=miniDem.Simulation(pNum,dNum,' '.join([
 	'-DGEOM_L1GEOM' if useL1Geom else '',
