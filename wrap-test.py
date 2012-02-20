@@ -1,9 +1,8 @@
 import sys
 sys.path.append('.')
-import miniDem
-sys.path.append('/usr/local/lib/yade-tr2/py')
+import clDem
 import miniEigen
-sim=miniDem.Simulation() #platformNum,deviceNum
+sim=clDem.Simulation() #platformNum,deviceNum
 def show(obj):
 	import pprint
 	d={}
@@ -16,15 +15,15 @@ def show(obj):
 show(sim.scene)
 print sim.con
 print sim.par
-par=miniDem.Particle()
+par=clDem.Particle()
 show(par)
-par.shape=miniDem.Sphere(radius=4)
+par.shape=clDem.Sphere(radius=4)
 show(par)
 sim.par=[par,]
 print sim.par
 print sim.scene.materials
 sim.scene.materials=[]
-sim.scene.materials=[miniDem.ElastMat()]
+sim.scene.materials=[clDem.ElastMat()]
 print sim.par[0].shape.radius
-c=miniDem.Contact()
+c=clDem.Contact()
 show(c)

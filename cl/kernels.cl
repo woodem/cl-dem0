@@ -1,286 +1,12 @@
 /* vim:set syntax=c: */
-#ifndef _SCENE_CL_
-#define _SCENE_CL_
 
-#include"../cl-math/basic-math.cl"
+#include"Particle.cl.h"
+#include"Contact.cl.h"
+#include"Scene.cl.h"
 
+// all kernels take the same set of arguments, for simplicity in the host code
+#define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con
 
-// AMD does not align unions correctly, help it a bit here
-// the 128 is the biggest alignment (on cl_double16), which is very
-// wasteful
-// optionally, alignment could be specified on each union
-// to accomodate the biggest alignment of contained structs
-#define AMD_UNION_ALIGN_BUG_WORKAROUND() __attribute__((aligned(128)))
-
-
-#ifdef __OPENCL_VERSION__
-	#define cl_short2 short2
-	#define cl_long2 long2
-	// printf in OpenCL code
-	#ifdef cl_intel_printf
-		#pragma OPENCL EXTENSION cl_intel_printf: enable
-	#elif defined(cl_amd_printf)
-		#pragma OPENCL EXTENSION cl_amd_printf: enable
-	#else
-		#define printf(...)
-	#endif
-#else
-	#define global
-	#define constant const
-#endif
-
-//#ifdef cl_khr_global_int32_base_atomics
-	#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
-//#else
-//	#error cl_khr_global_int32_base_atomics extension not supported
-//#endif
-
-#ifdef __cplusplus
-	#include<cstring>
-	#define UNION_BITWISE_CTORS(a) a(){}; a(const a& _b){ memcpy(this,&_b,sizeof(a));}; a& operator=(const a& _b){ memcpy(this,&_b,sizeof(a)); return *this; };
-#else
-	#define UNION_BITWISE_CTORS(a)
-#endif
-
-
-
-typedef cl_short2 flagSpec; // offset and length, in bits
-typedef long par_id_t;
-typedef cl_long2 par_id2_t;
-
-int flags_get(const int flags, const flagSpec spec){ return (flags>>spec.x)&((1<<spec.y)-1); }
-void flags_set(global int *flags, const flagSpec spec, int val){
-	(*flags)&=~(((1<<spec.y)-1)<<spec.x); /* zero field */
-	val&=((1<<spec.y)-1); /* zero excess bits */
-	(*flags)|=val<<spec.x;  /* set field */
-}
-void flags_set_local(int *flags, const flagSpec spec, int val){
-	(*flags)&=~(((1<<spec.y)-1)<<spec.x); /* zero field */
-	val&=((1<<spec.y)-1); /* zero excess bits */
-	(*flags)|=val<<spec.x;  /* set field */
-}
-
-struct Sphere{	Real radius; };
-struct Sphere Sphere_new(){ struct Sphere ret; ret.radius=NAN; return ret; }
-
-enum _shape_enum { Shape_Sphere=1, };
-
-// http://gpu.doxos.eu/trac/wiki/OpenCLDataStructures
-struct Particle{
-	int flags;
-	Vec3 pos, vel, angVel;
-	Quat ori;
-	Vec3 inertia;
-	Real mass;
-	Vec3 force, torque;
-	union {
-		struct Sphere sphere;
-	} AMD_UNION_ALIGN_BUG_WORKAROUND() shape;
-	int mutex;
-};
-#define PAR_LEN_shapeT  2
-#define PAR_LEN_clumped 1
-#define PAR_LEN_stateT  2
-#define PAR_LEN_dofs    6
-#define PAR_LEN_groups  4
-#define PAR_LEN_matId   6
-
-#define PAR_OFF_shapeT  0
-#define PAR_OFF_clumped PAR_OFF_shapeT + PAR_LEN_shapeT
-#define PAR_OFF_stateT  PAR_OFF_clumped + PAR_LEN_clumped
-#define PAR_OFF_dofs    PAR_OFF_stateT + PAR_LEN_stateT
-#define PAR_OFF_groups  PAR_OFF_dofs + PAR_LEN_dofs
-#define PAR_OFF_matId   PAR_OFF_groups + PAR_LEN_groups
-
-constant flagSpec par_flag_shapeT ={PAR_OFF_shapeT,PAR_LEN_shapeT};
-constant flagSpec par_flag_clumped={PAR_OFF_clumped,PAR_LEN_clumped};
-constant flagSpec par_flag_stateT ={PAR_OFF_stateT,PAR_LEN_stateT};
-constant flagSpec par_flag_dofs   ={PAR_OFF_dofs,PAR_LEN_dofs};
-constant flagSpec par_flag_groups ={PAR_OFF_groups,PAR_LEN_groups};
-constant flagSpec par_flag_matId  ={PAR_OFF_matId,PAR_LEN_matId};
-/* END */
-
-// static_assert(par_flag_groups.x+par_flag_groups.y<=32); // don't overflow int
-
-#define PARTICLE_FLAG_GET_SET(what) \
-	int par_##what##_get(global const struct Particle *p){ return flags_get(p->flags,par_flag_##what); } \
-	void par_##what##_set(global struct Particle *p, int val){ flags_set(&(p->flags),par_flag_##what,val); } \
-	void par_##what##_set_local(struct Particle *p, int val){ flags_set_local(&(p->flags),par_flag_##what,val); }
-PARTICLE_FLAG_GET_SET(shapeT);
-PARTICLE_FLAG_GET_SET(clumped);
-PARTICLE_FLAG_GET_SET(stateT);
-PARTICLE_FLAG_GET_SET(dofs);
-PARTICLE_FLAG_GET_SET(groups);
-PARTICLE_FLAG_GET_SET(matId);
-
-int dof_axis(int axis, int rot){ return 1<<(axis+(rot?3:0)); }
-constant int par_dofs_trans=7; // 0b0000111
-constant int par_dofs_rot=56;  // 0b0111000
-constant int par_dofs_all=63;  // 0b0111111
-
-
-struct Particle Particle_new(){
-	struct Particle p;
-	p.flags=0;
-	p.pos=Vec3_set(NAN,NAN,NAN);
-	p.ori=Quat_identity();
-	p.inertia=Vec3_set(1,1,1);
-	p.mass=1.;
-	p.vel=p.angVel=Vec3_set(0,0,0);
-	p.mutex=0;
-	p.force=p.torque=Vec3_set(0,0,0);
-
-	par_shapeT_set_local(&p,0);
-	par_clumped_set_local(&p,0);
-	par_stateT_set_local(&p,0);
-	par_dofs_set_local(&p,par_dofs_all);
-	par_groups_set_local(&p,0);
-	par_matId_set_local(&p,0);
-
-	return p;
-}
-
-
-
-struct L1Geom{ Real uN; };
-struct L1Geom L1Geom_new(){ struct L1Geom ret; ret.uN=NAN; return ret; }
-
-struct L6Geom{ Real uN; Vec3 vel; Vec3 angVel; };
-struct L6Geom L6Geom_new(){ struct L6Geom ret; ret.uN=NAN; ret.vel=ret.angVel=Vec3_set(0.,0.,0.); return ret; }
-
-enum _geom_enum { Geom_L1Geom=1, Geom_L6Geom };
-
-struct NormPhys{ Real kN; };
-struct NormPhys NormPhys_new(){ struct NormPhys ret; ret.kN=NAN; return ret; }
-
-enum _phys_enum { Phys_NormPhys=1, };
-
-struct Contact{
-	int flags;
-	par_id2_t ids;
-	Vec3 pos;
-	Mat3 ori;
-	Vec3 force, torque;
-	union _gg {
-		UNION_BITWISE_CTORS(_gg)
-		struct L1Geom l1g;
-		struct L6Geom l6g;
-	}  AMD_UNION_ALIGN_BUG_WORKAROUND() geom;
-	union {
-		struct NormPhys normPhys;
-	}  AMD_UNION_ALIGN_BUG_WORKAROUND() phys;
-};
-
-#define CON_LEN_shapesT 2*(PAR_LEN_shapeT) // currently unused in the actual code
-#define CON_LEN_geomT   2
-#define CON_LEN_physT   2
-
-#define CON_OFF_shapesT 0
-#define CON_OFF_geomT   CON_OFF_shapesT + CON_LEN_shapesT
-#define CON_OFF_physT   CON_OFF_geomT + CON_LEN_geomT
-
-constant flagSpec con_flag_shapesT={CON_OFF_shapesT,CON_LEN_shapesT};
-constant flagSpec con_flag_geomT  ={CON_OFF_geomT,CON_LEN_geomT};
-constant flagSpec con_flag_physT  ={CON_OFF_physT,CON_LEN_physT};
-#define CONTACT_FLAG_GET_SET(what) \
-	int con_##what##_get(global const struct Contact *c){ return flags_get(c->flags,con_flag_##what); } \
-	void con_##what##_set(global struct Contact *c, int val){ flags_set(&c->flags,con_flag_##what,val); } \
-	int con_##what##_get_local(const struct Contact *c){ return flags_get(c->flags,con_flag_##what); } \
-	void con_##what##_set_local(struct Contact *c, int val){ flags_set_local(&c->flags,con_flag_##what,val); } 
-CONTACT_FLAG_GET_SET(shapesT);
-CONTACT_FLAG_GET_SET(geomT);
-CONTACT_FLAG_GET_SET(physT);
-
-struct Contact Contact_new(){
-	struct Contact c;
-	c.pos=Vec3_set(0,0,0);
-	c.ori=Mat3_identity();
-	c.force=c.torque=Vec3_set(0,0,0);
-	con_shapesT_set_local(&c,0);
-	con_geomT_set_local(&c,0);
-	con_physT_set_local(&c,0);
-	return c;
-}
-
-// must be macros so that they can be used as switch cases
-#define SHAPET2_COMBINE(s1,s2) ((s1) | (s2)<<(PAR_LEN_shapeT))
-#define GEOMT_PHYST_COMBINE(g,p) ((g) | (p)<<(CON_LEN_geomT))
-
-
-/* possibly we won't need different materials in one single simulation; stay general for now */
-struct ElastMat{ Real density, young; };
-struct ElastMat ElastMat_new(){ struct ElastMat ret; ret.density=NAN; ret.young=NAN; return ret; }
-
-enum _mat_enum { Mat_ElastMat=1, };
-
-struct Material{
-	int flags;
-	union{
-		struct ElastMat elast;
-	}  AMD_UNION_ALIGN_BUG_WORKAROUND() mat;
-};
-
-#define MAT_LEN_matT 3
-#define MAT_OFF_matT 0
-constant flagSpec mat_flag_matT={MAT_OFF_matT,MAT_LEN_matT};
-#define MATERIAL_FLAG_GET_SET(what) \
-	int mat_##what##_get(global const struct Material *m){ return flags_get(m->flags,mat_flag_##what); } \
-	void mat_##what##_set(global struct Material *m, int val){ flags_set(&m->flags,mat_flag_##what,val); } \
-	void mat_##what##_set_local(struct Material *m, int val){ flags_set_local(&m->flags,mat_flag_##what,val); }
-MATERIAL_FLAG_GET_SET(matT);
-
-// int matT_combine2(int m1, int m2){ return m1 & m2<<(mat_flag_matT.y); }
-#define MATT2_COMBINE(m1,m2) ((m1) | (m2)<<(MAT_LEN_matT))
-
-
-enum _energy{ENERGY_Ekt=0,ENERGY_Ekr,ENERGY_grav,ENERGY_damp,ENERGY_elast,SCENE_ENERGY_NUM };
-struct  EnergyProperties {
-	const char name[16];
-	long int index; /* ! must be long, AMD otherwise reads garbage for incremental?! !! */ 
-	bool incremental;
-};
-constant struct EnergyProperties energyDefinitions[]={
-	{"Ekt",  ENERGY_Ekt,  false},
-	{"Ekr",  ENERGY_Ekt,  false},
-	{"grav", ENERGY_grav, true }, 
-	{"damp", ENERGY_damp, true },
-	{"elast",ENERGY_elast,false},
-};
-
-
-#define SCENE_MAT_NUM 8
-struct Scene{
-	Real t;
-	Real dt;
-	long step;
-	Vec3 gravity;
-	Real damping;
-	struct Material materials[SCENE_MAT_NUM];
-	float energy[SCENE_ENERGY_NUM];
-	int energyMutex[SCENE_ENERGY_NUM]; // use mutexes until atomics work for floats
-};
-
-
-struct Scene Scene_new(){
-	struct Scene s;
-	s.t=0;
-	s.dt=1e-8;
-	s.step=-1;
-	s.gravity=Vec3_set(0,0,0);
-	s.damping=0.;
-	// no materials
-	for(int i=0; i<SCENE_MAT_NUM; i++) mat_matT_set_local(&s.materials[i],0); 
-	//Scene_energyReset(&s): but the pointer is not global, copy here instead
-	for(int i=0; i<SCENE_ENERGY_NUM; i++){ s.energy[i]=0; s.energyMutex[i]=0; }
-	return s;
-}
-
-// exposed to python, hence must be visible to the host
-void Scene_energyReset(global struct Scene* s){
-	for(int i=0; i<SCENE_ENERGY_NUM; i++) s->energy[i]=0;
-}
-
-#ifdef __OPENCL_VERSION__
 
 #define TRYLOCK(a) atom_cmpxchg(a,0,1)
 #define LOCK(a) while(TRYLOCK(a))
@@ -309,12 +35,10 @@ void Scene_energyZeroNonincremental(global struct Scene* scene){
 	//printf("]\n");
 }
 
-kernel void nextTimestep(global struct Scene* scene);
-kernel void forcesToParticles(global const struct Scene* scene, global struct Particle* par, global const struct Contact* con);
-kernel void integrator (global struct Scene* scene, global struct Particle* par);
-kernel void contCompute(global struct Scene*, global const struct Particle* par, global struct Contact* con);
+/**** kernel code, will be in separate files ****/
 
-kernel void nextTimestep(global struct Scene* scene){
+
+kernel void nextTimestep_1(KERNEL_ARGUMENT_LIST){
 	// if step is -1, we are at the very beginning
 	// keep time at 0, only increase step number
 	if(scene->step>0) scene->t+=scene->dt;
@@ -324,7 +48,7 @@ kernel void nextTimestep(global struct Scene* scene){
 	#endif
 }
 
-kernel void forcesToParticles(global const struct Scene* scene, global struct Particle* par, global const struct Contact* con){
+kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST){
 	//if(scene->step==0) return;
 	/* how to synchronize access to particles? */
 	global const struct Contact* c=&(con[get_global_id(0)]);
@@ -342,7 +66,7 @@ kernel void forcesToParticles(global const struct Scene* scene, global struct Pa
 	UNLOCK(&p2->mutex);
 }
 
-kernel void integrator(global struct Scene* scene, global struct Particle* par){
+kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	global struct Particle *p=&(par[get_global_id(0)]);
 	int dofs=par_dofs_get(p);
 	Vec3 accel=0., angAccel=0.;
@@ -440,7 +164,7 @@ void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 
 
 // #define GEOM_L1GEOM
 
-kernel void contCompute(global struct Scene* scene, global const struct Particle* par, global struct Contact* con){
+kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	global struct Contact *c=&(con[get_global_id(0)]);
 	global const struct Particle* p1=&(par[c->ids.s0]);
 	global const struct Particle* p2=&(par[c->ids.s1]);
@@ -538,13 +262,4 @@ kernel void contCompute(global struct Scene* scene, global const struct Particle
 	}
 }
 
-#endif /*__OPENCL_VERSION__*/
 
-#ifdef __OPENCL_VERSION__
-	#undef constant
-	#undef global
-#endif
-
-#endif /* _SCENE_CL */
-
-// this padding is important since otherwise the file is read in a werid way givin errors at the end

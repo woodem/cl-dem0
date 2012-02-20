@@ -1,0 +1,8 @@
+
+	* cl.h files are included from both OpenCL and c++
+	* .hpp files are only used from c++ code
+	* .cl files are only used from OpenCL code
+	* functions exporting relevant parts to python are called Filename_cl_h_expose()
+	* CLDEM_NAMESPACE_BEGIN and CLDEM_NAMESPACE_END are used around structs/functions to avoid symbol clashes in the exported python module
+
+Pseudo-methods for each structure are names Structure_methodName(global struct Struct* this, ...).

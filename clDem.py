@@ -2,7 +2,7 @@
 # import the c++ wrapper
 import sys
 sys.path.append('.')
-import _miniDem
+import _clDem
 import math
 import miniEigen
 
@@ -15,12 +15,12 @@ def BaseClassSetter(baseClass,**kw):
 		else: raise AttributeError("No such attribute: %s"%key)
 	return s
 # functions which look like constructors, but set all attributes from keyword passed to them
-# the actual classes are in the _miniDem module, which is not imported into the namespace
+# the actual classes are in the _clDem module, which is not imported into the namespace
 # of this module directly
-for clss in ('Scene','ElastMat','Particle','Sphere','Contact','L1Geom','NormPhys'):
+for clss in ('Scene','ElastMat','Particle','Sphere','Contact','L1Geom','L6Geom','NormPhys'):
 	# global() is reference to the global (module, in this case) dictionary
-	globals()[clss]=functools.partial(BaseClassSetter,getattr(_miniDem,clss))
-Simulation=_miniDem.Simulation
+	globals()[clss]=functools.partial(BaseClassSetter,getattr(_clDem,clss))
+Simulation=_clDem.Simulation
 
 # utility functions here
 def mkSphere(pos,radius,sim,matId=0,fixed=False):
@@ -40,7 +40,7 @@ def showSim(sim):
 		print '#%d x=%s; v=%s, F=%s, T=%s'%(i,p.pos,p.vel,p.force,p.torque)
 	for c in sim.con:
 		print '##%d+%d: p=%s, F=%s, T=%s, rot=%s'%(c.ids[0],c.ids[1],c.pos,c.force,c.torque,c.ori)
-		if c.geom: print '\tgeomT=%d, uN=%g%s'%(c.geomT,c.geom.uN,', v=%s, ω=%s'%(c.geom.vel,c.geom.angVel) if isinstance(c.geom,_miniDem.L6Geom) else '')
+		if c.geom: print '\tgeomT=%d, uN=%g%s'%(c.geomT,c.geom.uN,', v=%s, ω=%s'%(c.geom.vel,c.geom.angVel) if isinstance(c.geom,_clDem.L6Geom) else '')
 		if c.phys: print '\tphysT=%d, kN=%g'%(c.physT,c.phys.kN)
 Simulation.show=showSim
 

@@ -1,7 +1,7 @@
 # encoding: utf-8
 import sys
 sys.path.append('.')
-import miniDem
+import clDem
 from miniEigen import *
 from math import *
 
@@ -22,39 +22,39 @@ useL1Geom,ktDivKn,charLen,dtFrac=(
 	(False,.8,1e5*r,.01),
 )[2] # pick configuration set here
 
-sim=miniDem.Simulation(pNum,dNum,' '.join([
+sim=clDem.Simulation(pNum,dNum,' '.join([
 	'-DGEOM_L1GEOM' if useL1Geom else '',
 	'-DBEND_CHARLEN=%g'%charLen if charLen else '',
 	'-DSHEAR_KT_DIV_KN=%g'%ktDivKn if ktDivKn>0 else '',
 	'-DTRACK_ENERGY',
 ])) # pass from command-line
 
-sim.scene.materials=[miniDem.ElastMat(density=rho,young=E)]
+sim.scene.materials=[clDem.ElastMat(density=rho,young=E)]
 sim.scene.gravity=(0,0,-10)
 sim.scene.damping=.4
 
 for i in range(0,N):
-	sim.par.append(miniDem.mkSphere((2*r*i,0,0),r,sim,matId=0,fixed=(i in supports)))
+	sim.par.append(clDem.mkSphere((2*r*i,0,0),r,sim,matId=0,fixed=(i in supports)))
 	print '#%d, flags=%d'%(i,sim.par[-1].flags)
-	if i>0: sim.con.append(miniDem.Contact(ids=(i-1,i)))
+	if i>0: sim.con.append(clDem.Contact(ids=(i-1,i)))
 
 sim.scene.dt=dtFrac*sim.pWaveDt()
 
-miniDem.briefOutput()
+clDem.briefOutput()
 sim.show()
 
 def yadeCopy():
-	import _miniDem
+	import _clDem
 	import yade.utils
 	# copy materials
 	yadeMat=[]
 	for m in sim.scene.materials:
-		if isinstance(m,_miniDem.ElastMat):
+		if isinstance(m,_clDem.ElastMat):
 			yadeMat.append(yade.dem.FrictMat(young=m.young,density=m.density,tanPhi=0))
 		else: yadeMat.append(None)
 	# copy particles
 	for p in sim.par:
-		if isinstance(p.shape,_miniDem.Sphere):
+		if isinstance(p.shape,_clDem.Sphere):
 			yade.O.dem.par.append(yade.utils.sphere(p.pos,p.shape.radius,material=yadeMat[p.matId],fixed=(p.dofs==0),color=.5 if p.dofs==0 else .3,wire=True))
 	ids1, ids2=[c.ids[0] for c in sim.con],[c.ids[1] for c in sim.con]
 	yade.utils.createContacts(ids1,ids2,[yade.dem.Cg2_Sphere_Sphere_L6Geom()],[yade.dem.Cp2_FrictMat_FrictPhys(ktDivKn=0 if useL1Geom else ktDivKn)]) # .2 is constant in the OpenCL code for this case

@@ -1,7 +1,7 @@
 # encoding: utf-8
 import sys
 sys.path.append('.')
-import miniDem
+import clDem
 from miniEigen import *
 from math import *
 
@@ -14,22 +14,22 @@ r=.005
 E=1e4
 rho=1e4
 
-sim=miniDem.Simulation(pNum,dNum) # pass from command-line
+sim=clDem.Simulation(pNum,dNum) # pass from command-line
 
-sim.scene.materials=[miniDem.ElastMat(young=E,density=rho)]
+sim.scene.materials=[clDem.ElastMat(young=E,density=rho)]
 sim.scene.gravity=(0,0,-10)
 sim.scene.damping=.4
 
 for i in range(0,N):
-	sim.par.append(miniDem.mkSphere((2*r*i,0,0),r,sim,matId=0,fixed=(i in supports)))
+	sim.par.append(clDem.mkSphere((2*r*i,0,0),r,sim,matId=0,fixed=(i in supports)))
 	print '#%d, flags=%d'%(i,sim.par[-1].flags)
 	if i>0:
-		sim.con.append(miniDem.Contact(ids=(i-1,i)))
+		sim.con.append(clDem.Contact(ids=(i-1,i)))
 sim.scene.dt=.2*sim.pWaveDt()
 
 for i in range(0,100):
 	sim.run(10)
 	print 'Saved',sim.saveVtk('/tmp/chain',compress=False,ascii=True)
 
-miniDem.briefOutput()
-miniDem.showSim(sim)
+clDem.briefOutput()
+clDem.showSim(sim)
