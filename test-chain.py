@@ -31,5 +31,5 @@ for i in range(0,100):
 	sim.run(10)
 	print 'Saved',sim.saveVtk('/tmp/chain',compress=False,ascii=True)
 
-clDem.briefOutput()
-clDem.showSim(sim)
+#clDem.briefOutput()
+#clDem.showSim(sim)

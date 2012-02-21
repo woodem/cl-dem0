@@ -13,7 +13,7 @@ enum _shape_enum { Shape_Sphere=1, };
 // http://gpu.doxos.eu/trac/wiki/OpenCLDataStructures
 struct Particle{
 	int flags;
-	Vec3 pos, vel, angVel;
+	Vec3 pos, vel, angVel, bboxPos;
 	Quat ori;
 	Vec3 inertia;
 	Real mass;
@@ -67,7 +67,7 @@ constant int par_dofs_all=63;  // 0b0111111
 struct Particle Particle_new(){
 	struct Particle p;
 	p.flags=0;
-	p.pos=Vec3_set(NAN,NAN,NAN);
+	p.pos=p.bboxPos=Vec3_set(NAN,NAN,NAN);
 	p.ori=Quat_identity();
 	p.inertia=Vec3_set(1,1,1);
 	p.mass=1.;

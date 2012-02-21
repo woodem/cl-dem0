@@ -18,6 +18,7 @@
 #ifdef __OPENCL_VERSION__
 	#define cl_short2 short2
 	#define cl_long2 long2
+	#define cl_bool bool
 	// printf in OpenCL code
 	#ifdef cl_intel_printf
 		#pragma OPENCL EXTENSION cl_intel_printf: enable

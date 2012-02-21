@@ -5,8 +5,19 @@
 #include"Scene.cl.h"
 
 // all kernels take the same set of arguments, for simplicity in the host code
-#define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con
+#define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int* clumps, global float* bboxes
 
+// return when either interrupt before NAME was set in this or previous steps
+// or when interrupt NAME or after was set in previous steps.
+// This assures that setting interrupt from a kernel will not prevent
+// other work-items of the same kernel to be run. In another words,
+// kernels will always either run for all work-items, or for none.
+
+#ifdef cl_amd_printf
+	#define PRINT_TRACE(name)
+#else
+	#define PRINT_TRACE(name) //{ if(get_global_id(0)==0) printf("%s:%-4d %4ld/%d %s\n",__FILE__,__LINE__,scene->step,substep,name); }
+#endif
 
 #define TRYLOCK(a) atom_cmpxchg(a,0,1)
 #define LOCK(a) while(TRYLOCK(a))
@@ -39,34 +50,24 @@ void Scene_energyZeroNonincremental(global struct Scene* scene){
 
 
 kernel void nextTimestep_1(KERNEL_ARGUMENT_LIST){
+	const int substep=SUB_nextTimestep;
+	scene->step++;
+	if(scene->step>0 && Scene_skipKernel(/*use new value already, but without assigning it to scene*/scene,substep)) return;
+	PRINT_TRACE("nextTimestep_1");
+
 	// if step is -1, we are at the very beginning
 	// keep time at 0, only increase step number
 	if(scene->step>0) scene->t+=scene->dt;
-	scene->step++;
 	#ifdef TRACK_ENERGY
 		Scene_energyZeroNonincremental(scene);
 	#endif
 }
 
-kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST){
-	//if(scene->step==0) return;
-	/* how to synchronize access to particles? */
-	global const struct Contact* c=&(con[get_global_id(0)]);
-	global struct Particle *p1=&(par[c->ids.x]), *p2=&(par[c->ids.y]);
-	Mat3 R_T=Mat3_transpose(c->ori);
-	Vec3 Fp1=+Mat3_multV(R_T,c->force);
-	Vec3 Fp2=-Mat3_multV(R_T,c->force);
-	Vec3 Tp1=+cross(c->pos-p1->pos,Mat3_multV(R_T,c->force))+Mat3_multV(R_T,c->torque);
-	Vec3 Tp2=-cross(c->pos-p2->pos,Mat3_multV(R_T,c->force))-Mat3_multV(R_T,c->torque);
-	LOCK(&p1->mutex);
-		p1->force+=Fp1; p1->torque+=Tp1;
-	UNLOCK(&p1->mutex);
-	LOCK(&p2->mutex);
-		p2->force+=Fp2; p2->torque+=Tp2;
-	UNLOCK(&p2->mutex);
-}
-
 kernel void integrator_P(KERNEL_ARGUMENT_LIST){
+	const int substep=SUB_integrator;
+	if(Scene_skipKernel(scene,substep)) return;
+	PRINT_TRACE("integrator_P");
+
 	global struct Particle *p=&(par[get_global_id(0)]);
 	int dofs=par_dofs_get(p);
 	Vec3 accel=0., angAccel=0.;
@@ -127,6 +128,38 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	// reset forces on particles
 	p->force=p->torque=(Vec3)0.;
 
+	// is this safe for multi-threaded? is the new value always going to be written?
+	// it is not read until in the next kernel
+	if(Vec3_sqNorm(p->pos-p->bboxPos)>pown(scene->verletDist,2)) scene->updateBboxes=true;
+}
+
+/** This kernel runs only when INT_OUT_OF_BBOX is set **/
+kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
+	const int substep=SUB_updateBboxes;
+	if(!scene->updateBboxes) return;
+	if(Scene_skipKernel(scene,substep)) return;
+	PRINT_TRACE("updateBboxes_P");
+
+	par_id_t id=get_global_id(0);
+	global struct Particle *p=&par[id];
+	Vec3 mn, mx;
+	switch(par_shapeT_get(p)){
+		case Shape_Sphere:
+			mn=p->pos-(Vec3)(p->shape.sphere.radius);
+			mx=p->pos+(Vec3)(p->shape.sphere.radius);
+			break;
+		default: /* */;
+	}
+	mn-=(Vec3)scene->verletDist;
+	mx+=(Vec3)scene->verletDist;
+	bboxes[id*6+0]=mn.x; bboxes[id*6+1]=mn.y; bboxes[id*6+2]=mn.z;
+	bboxes[id*6+3]=mx.x; bboxes[id*6+4]=mx.y; bboxes[id*6+5]=mx.z;
+
+	// enable this once the host code is able to process interrupts accordingly
+	#if 0
+		// it is enough that only the 0th thread sets the interrupt
+		if(id==0) Scene_interrupt_set(scene,substep,INT_BBOXES_UPDATED,/*destructive*/false);
+	#endif
 }
 
 void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, const Real r1, const Real r2, Real dt){
@@ -165,42 +198,27 @@ void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 
 // #define GEOM_L1GEOM
 
 kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
+	const int substep=SUB_contCompute;
+	if(Scene_skipKernel(scene,substep)) return;
+	PRINT_TRACE("contCompute_C");
+
 	global struct Contact *c=&(con[get_global_id(0)]);
 	global const struct Particle* p1=&(par[c->ids.s0]);
 	global const struct Particle* p2=&(par[c->ids.s1]);
 	/* create geometry for new contacts */
-	#ifdef GEOM_L1GEOM
-		if(con_geomT_get(c)==0){
-			con_geomT_set(c,Geom_L1Geom); c->geom.l1g=L1Geom_new();
+	switch(SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2))){
+		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
+			Real r1=p1->shape.sphere.radius, r2=p2->shape.sphere.radius;
+			Real dist=distance(p1->pos,p2->pos);
+			Vec3 normal=(p2->pos-p1->pos)/dist;
+			Real uN=dist-(r1+r2);
+			if(con_geomT_get(c)==0 && uN>0) return; // potential contact only created if uN<=0
+			Vec3 contPt=p1->pos+(r1+.5*uN)*normal;
+			computeL6GeomGeneric(c,p1->pos,p1->vel,p1->angVel,p2->pos,p2->vel,p2->angVel,normal,contPt,uN,r1,r2,scene->dt);
+			break;
 		}
-		switch (SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2))){
-			case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere): {
-				//assert(con_geomT_get(c)==Geom_L1Geom);
-				global struct L1Geom* l1g=&(c->geom.l1g);
-				Real r1=p1->shape.sphere.radius, r2=p2->shape.sphere.radius;
-				Real dist=distance(p1->pos,p2->pos);
-				Vec3 normal=(p2->pos-p1->pos)/dist;
-				l1g->uN=dist-(r1+r2);
-				c->pos=p1->pos+(r1+.5*l1g->uN)*normal;
-				c->ori=Mat3_rot_setYZ(normal);
-				break;
-			}
-			default: /* error */ ;
-		}
-	#else
-		switch(SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2))){
-			case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
-				Real r1=p1->shape.sphere.radius, r2=p2->shape.sphere.radius;
-				Real dist=distance(p1->pos,p2->pos);
-				Vec3 normal=(p2->pos-p1->pos)/dist;
-				Real uN=dist-(r1+r2);
-				Vec3 contPt=p1->pos+(r1+.5*uN)*normal;
-				computeL6GeomGeneric(c,p1->pos,p1->vel,p1->angVel,p2->pos,p2->vel,p2->angVel,normal,contPt,uN,r1,r2,scene->dt);
-				break;
-			}
-			default: /* signal error */ ;
-		}
-	#endif
+		default: /* signal error */ ;
+	}
 	/* update physical params: only if there are no physical params yet */
 	if(con_physT_get(c)==0){
 		int matId1=par_matId_get(p1), matId2=par_matId_get(p2);
@@ -262,4 +280,26 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	}
 }
 
+
+kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST){
+	const int substep=SUB_forcesToParticles;
+	if(Scene_skipKernel(scene,substep)) return;
+	PRINT_TRACE("forcesToParticle_C");
+
+	/* how to synchronize access to particles? */
+	global const struct Contact* c=&(con[get_global_id(0)]);
+	if(con_geomT_get(c)==0) return;
+	global struct Particle *p1=&(par[c->ids.x]), *p2=&(par[c->ids.y]);
+	Mat3 R_T=Mat3_transpose(c->ori);
+	Vec3 Fp1=+Mat3_multV(R_T,c->force);
+	Vec3 Fp2=-Mat3_multV(R_T,c->force);
+	Vec3 Tp1=+cross(c->pos-p1->pos,Mat3_multV(R_T,c->force))+Mat3_multV(R_T,c->torque);
+	Vec3 Tp2=-cross(c->pos-p2->pos,Mat3_multV(R_T,c->force))-Mat3_multV(R_T,c->torque);
+	LOCK(&p1->mutex);
+		p1->force+=Fp1; p1->torque+=Tp1;
+	UNLOCK(&p1->mutex);
+	LOCK(&p2->mutex);
+		p2->force+=Fp2; p2->torque+=Tp2;
+	UNLOCK(&p2->mutex);
+}
 

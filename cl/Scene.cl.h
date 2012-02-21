@@ -34,7 +34,7 @@ enum _energy{ENERGY_Ekt=0,ENERGY_Ekr,ENERGY_grav,ENERGY_damp,ENERGY_elast,SCENE_
 struct  EnergyProperties {
 	const char name[16];
 	long int index; /* ! must be long, AMD otherwise reads garbage for incremental?! !! */ 
-	bool incremental;
+	cl_bool incremental;
 };
 constant struct EnergyProperties energyDefinitions[]={
 	{"Ekt",  ENERGY_Ekt,  false},
@@ -44,14 +44,26 @@ constant struct EnergyProperties energyDefinitions[]={
 	{"elast",ENERGY_elast,false},
 };
 
+// substep numbers for kernels (they must be always run in this order)
+enum _substeps{ SUB_nextTimestep=0, SUB_integrator, SUB_updateBboxes, SUB_contCompute, SUB_forcesToParticles, };
+// interrupt codes
+enum _interrupts{ INT_BBOXES_UPDATED=0, };
 
 #define SCENE_MAT_NUM 8
 struct Scene{
 	Real t;
 	Real dt;
 	long step;
+	struct Interrupt {
+		int step; // when -1, no interrupt; // FIXME: should be long, but there are no atomics on longs!
+		int substep;
+		int what;
+		cl_bool destructive;
+	} interrupt;
 	Vec3 gravity;
 	Real damping;
+	Real verletDist;
+	cl_bool updateBboxes;
 	struct Material materials[SCENE_MAT_NUM];
 	float energy[SCENE_ENERGY_NUM];
 	int energyMutex[SCENE_ENERGY_NUM]; // use mutexes until atomics work for floats
@@ -65,12 +77,47 @@ struct Scene Scene_new(){
 	s.step=-1;
 	s.gravity=Vec3_set(0,0,0);
 	s.damping=0.;
+	s.verletDist=0.;
+	s.interrupt.step=-1;
+	s.interrupt.substep=s.interrupt.what=s.interrupt.destructive=0;
+	s.updateBboxes=false;
 	// no materials
 	for(int i=0; i<SCENE_MAT_NUM; i++) mat_matT_set_local(&s.materials[i],0); 
 	//Scene_energyReset(&s): but the pointer is not global, copy here instead
 	for(int i=0; i<SCENE_ENERGY_NUM; i++){ s.energy[i]=0; s.energyMutex[i]=0; }
 	return s;
 }
+
+#ifdef __OPENCL_VERSION__
+bool Scene_interrupt_set(global struct Scene* s, int substep, int what, bool destructive){
+	if(atom_cmpxchg(&s->interrupt.step,-1,s->step)==-1){
+		printf("%d/%d: Setting interrupt %d\n",/*make AMD happy*/(int)s->step,substep,what);
+		s->interrupt.substep=substep;
+		s->interrupt.what=what;
+		s->interrupt.destructive=destructive;
+		return true;
+	}
+	return false;
+}
+
+bool Scene_skipKernel(global struct Scene* s, int substep){
+	return
+		s->interrupt.step>=0 /* valid interrupt */
+		&& (
+			s->interrupt.step<s->step /* interrupted in previous step already */
+			||
+			(s->interrupt.step==s->step /* interrupted in this step */
+			&& (
+				// destructive interrupt: other workitems with the current kernel can be skipped
+				(s->interrupt.destructive && s->interrupt.substep<=substep)
+				||
+				// non-destructive: other workitems within the same kernel must complete
+				(!s->interrupt.destructive && s->interrupt.substep<substep)
+			)
+		)
+	);
+}
+#endif
 
 // exposed to python, hence must be visible to the host
 void Scene_energyReset(global struct Scene* s){
@@ -141,10 +188,6 @@ CLDEM_NAMESPACE_END();
 			.def("energyError",Scene_energyError)
 		;
 	}
-
-
-
-
 #endif
 
 #endif
