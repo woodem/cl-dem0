@@ -1,8 +1,42 @@
 /* vim:set syntax=c: */
+#ifndef _KERNELS_CL_H
+#define _KERNELS_CL_H
 
 #include"Particle.cl.h"
 #include"Contact.cl.h"
 #include"Scene.cl.h"
+
+CLDEM_NAMESPACE_BEGIN()
+
+// substep numbers here
+enum _substeps{ SUB_nextTimestep=0, SUB_integrator, SUB_updateBboxes, SUB_contCompute, SUB_forcesToParticles, };
+
+#ifdef __cplusplus
+/* how is kernel parallellized: single (task), over particles, over contacts */
+enum _kargs{ KARGS_SINGLE, KARGS_PAR, KARGS_CON };
+/* information about kernel necessary for the queueing and interrupt logic */
+struct KernelInfo {
+	int substep;
+	const char* name;
+	int argsType;
+};
+/* this is the loop which will be running */
+struct KernelInfo clDemKernels[]={
+	{ SUB_nextTimestep     , "nextTimestep_1"    , KARGS_SINGLE },
+	{ SUB_integrator       , "integrator_P"      , KARGS_PAR },
+	{ SUB_updateBboxes     , "updateBboxes_P"    , KARGS_PAR },
+	{ SUB_contCompute      , "contCompute_C"     , KARGS_CON },
+	{ SUB_forcesToParticles, "forcesToParticles_C", KARGS_CON },
+	{ }, /*sentinel*/
+};
+#endif
+
+CLDEM_NAMESPACE_END()
+
+/* the rest of the code is only used on the device */
+#ifdef __OPENCL_VERSION__
+
+
 
 // all kernels take the same set of arguments, for simplicity in the host code
 #define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int* clumps, global float* bboxes
@@ -16,7 +50,7 @@
 #ifdef cl_amd_printf
 	#define PRINT_TRACE(name)
 #else
-	#define PRINT_TRACE(name) //{ if(get_global_id(0)==0) printf("%s:%-4d %4ld/%d %s\n",__FILE__,__LINE__,scene->step,substep,name); }
+	#define PRINT_TRACE(name) { if(get_global_id(0)==0) printf("%s:%-4d %4ld/%d %s\n",__FILE__,__LINE__,scene->step,substep,name); }
 #endif
 
 #define TRYLOCK(a) atom_cmpxchg(a,0,1)
@@ -212,7 +246,7 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 			Real dist=distance(p1->pos,p2->pos);
 			Vec3 normal=(p2->pos-p1->pos)/dist;
 			Real uN=dist-(r1+r2);
-			if(con_geomT_get(c)==0 && uN>0) return; // potential contact only created if uN<=0
+			// if(con_geomT_get(c)==0 && uN>0) return; // potential contact only created if uN<=0
 			Vec3 contPt=p1->pos+(r1+.5*uN)*normal;
 			computeL6GeomGeneric(c,p1->pos,p1->vel,p1->angVel,p2->pos,p2->vel,p2->angVel,normal,contPt,uN,r1,r2,scene->dt);
 			break;
@@ -302,4 +336,5 @@ kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST){
 		p2->force+=Fp2; p2->torque+=Tp2;
 	UNLOCK(&p2->mutex);
 }
-
+#endif
+#endif

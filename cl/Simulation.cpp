@@ -17,34 +17,26 @@
 	#include<vtkXMLPolyDataWriter.h>
 #endif
 
+
 namespace clDem{
 	void Simulation::writeBufs(bool wait){
-		bufs.parSize=par.size(); bufs.conSize=con.size();
+		if(par.empty() || con.empty()) throw std::runtime_error("There must be some particles (now "+lexical_cast<string>(par.size())+") and contacts (now "+lexical_cast<string>(con.size())+")");
 		clumps.resize(1); // not yet working
+		bufs.scene=writeBuf(scene);
+		bufs.par=writeVecBuf(par,bufs.parSize);
+		bufs.con=writeVecBuf(con,bufs.conSize);
+		bufs.clumps=writeVecBuf(clumps,bufs.clumpsSize); /* should be read-only */
 		bboxes.resize(par.size()*6);
-		bufs.scene=cl::Buffer(context,CL_MEM_READ_WRITE,sizeof(Scene),NULL);
-		queue.enqueueWriteBuffer(bufs.scene,CL_FALSE,0,sizeof(Scene),&scene);
-		bufs.par=cl::Buffer(context,CL_MEM_READ_WRITE,sizeof(Particle)*par.size(),NULL);
-		queue.enqueueWriteBuffer(bufs.par,CL_FALSE,0,sizeof(Particle)*par.size(),&(par[0]));
-		bufs.con=cl::Buffer(context,CL_MEM_READ_WRITE,sizeof(Contact )*con.size(),NULL);
-		queue.enqueueWriteBuffer(bufs.con,CL_FALSE,0,sizeof(Contact )*con.size(),&(con[0]));
-		// read-only
-		bufs.clumps=cl::Buffer(context,CL_MEM_READ_ONLY,sizeof(par_id_t)*clumps.size(),NULL);
-		queue.enqueueWriteBuffer(bufs.clumps,CL_FALSE,0,sizeof(par_id_t)*clumps.size(),&(clumps[0]));
-		// this one could be not written at all
-		bufs.bboxes=cl::Buffer(context,CL_MEM_READ_WRITE,sizeof(float)*6*par.size(),NULL);
-		queue.enqueueWriteBuffer(bufs.bboxes,CL_FALSE,0,sizeof(float)*6*par.size(),&(bboxes[0]));
+		bufs.bboxes=writeVecBuf(bboxes,bufs.bboxesSize);
 		if(wait) queue.finish();
 	}
 
 	void Simulation::readBufs(bool wait){
-		par.resize(bufs.parSize); con.resize(bufs.conSize);
-		queue.enqueueReadBuffer(bufs.scene,CL_FALSE,0,sizeof(Scene),&scene);
-		queue.enqueueReadBuffer(bufs.par,CL_FALSE,0,sizeof(Particle)*par.size(),&(par[0]));
-		queue.enqueueReadBuffer(bufs.con,CL_FALSE,0,sizeof(Contact )*con.size(),&(con[0]));
-		// don't read clumps back
-		//queue.enqueueReadBuffer(bufs.clumps,CL_FALSE,0,sizeof(par_id_t)*clumps.size(),&(clumps[0]));
-		queue.enqueueReadBuffer(bufs.bboxes,CL_FALSE,0,sizeof(float)*6*par.size(),&(bboxes[0]));
+		readBuf(bufs.scene,scene);
+		readVecBuf(bufs.par,par,bufs.parSize);
+		readVecBuf(bufs.con,con,bufs.conSize);
+		// readVecBuf(bufs.clumps,clumps,bufs.clumpsSize); // don't read back, they are const
+		readVecBuf(bufs.bboxes,bboxes,bufs.bboxesSize);
 		if(wait) queue.finish();
 	};
 
@@ -85,7 +77,7 @@ namespace clDem{
 		std::cerr<<"** OpenCL ready: platform \""<<platform.getInfo<CL_PLATFORM_NAME>()<<"\", device \""<<device.getInfo<CL_DEVICE_NAME>()<<"\"."<<std::endl;
 		queue=cl::CommandQueue(context,device);
 		// compile source
-		const char* src="#include\"cl/kernels.cl\"\n\n\0";
+		const char* src="#include\"cl/kernels.cl.h\"\n\n\0";
 		cl::Program::Sources source(1,std::make_pair(src,std::string(src).size()));
 		program=cl::Program(context,source);
 		try{
@@ -102,20 +94,39 @@ namespace clDem{
 		std::cerr<<"** Program compiled.\n";
 	};
 	void Simulation::run(int nSteps){
-		if(par.empty() || con.empty()) throw std::runtime_error("There must be some particles (now "+lexical_cast<string>(par.size())+") and contacts (now "+lexical_cast<string>(con.size())+")");
 		// create buffers, enqueue copies to the device
 		writeBufs();
-		// create kernels, set their args
-		cl::Kernel stepK=makeKernel("nextTimestep_1"), integratorK=makeKernel("integrator_P"), bboxK=makeKernel("updateBboxes_P"), contactK=makeKernel("contCompute_C"), forcesK=makeKernel("forcesToParticles_C");
-		for(int i=0; i<nSteps; i++){
-			queue.enqueueTask(stepK);
-			queue.enqueueNDRangeKernel(integratorK,cl::NDRange(0),cl::NDRange(par.size()),cl::NDRange(1));
-			queue.enqueueNDRangeKernel(bboxK      ,cl::NDRange(0),cl::NDRange(par.size()),cl::NDRange(1));
-			queue.enqueueNDRangeKernel(contactK   ,cl::NDRange(0),cl::NDRange(con.size()),cl::NDRange(1));
-			queue.enqueueNDRangeKernel(forcesK    ,cl::NDRange(0),cl::NDRange(con.size()),cl::NDRange(1));
-		}
+		/*
+		TODO: create loop which will handle interrupted runs here
+		and will not return until the required number of steps
+		completes successfully
+		*/
+			// create kernels, set their args, enqueue them (non-blocking)
+			runKernels(nSteps);
+			queue.finish();
+			// check interrupts here etc
+		/* end interrupt loop */
 		readBufs();
 	}
+	/* enqueue kernels for nSteps; the first step can start at step substepStart,
+	which is 0 by default (beginning of the whole timestep) */
+	void Simulation::runKernels(int nSteps, int substepStart){
+		for(int step=0; step<nSteps; step++){
+			int substepLast=-1;
+			for(int substep=(step==0?substepStart:0); clDemKernels[substep].name; substep++){
+				const KernelInfo& ki=clDemKernels[substep];
+				if(substepLast>=ki.substep) throw std::runtime_error("Kernel substep numbers are not an increasing sequence (error in kernel.cl.h)");
+				substepLast=ki.substep;
+				cl::Kernel k=makeKernel(ki.name);
+				switch(ki.argsType){
+					case KARGS_SINGLE: queue.enqueueTask(k); break;
+					case KARGS_PAR: queue.enqueueNDRangeKernel(k,cl::NDRange(0),cl::NDRange(bufs.parSize),cl::NDRange(1)); break;
+					case KARGS_CON: queue.enqueueNDRangeKernel(k,cl::NDRange(0),cl::NDRange(bufs.conSize),cl::NDRange(1)); break;
+					default: throw std::runtime_error("Invalid KernelInfo.argsType value "+lexical_cast<string>(ki.argsType));
+				}
+			}
+		}
+	};
 	Real Simulation::pWaveDt(){
 		Real ret=INFINITY;
 		for(size_t i=0; i<par.size(); i++){
@@ -236,5 +247,4 @@ namespace clDem{
 			return savedFiles;
 		}
 	#endif
-
 };

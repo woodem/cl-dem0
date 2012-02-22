@@ -2,6 +2,7 @@
 #define _SCENE_CL_H_
 
 #include"common.cl.h"
+#include"kernels.cl.h"
 
 CLDEM_NAMESPACE_BEGIN();
 
@@ -44,8 +45,6 @@ constant struct EnergyProperties energyDefinitions[]={
 	{"elast",ENERGY_elast,false},
 };
 
-// substep numbers for kernels (they must be always run in this order)
-enum _substeps{ SUB_nextTimestep=0, SUB_integrator, SUB_updateBboxes, SUB_contCompute, SUB_forcesToParticles, };
 // interrupt codes
 enum _interrupts{ INT_BBOXES_UPDATED=0, };
 
