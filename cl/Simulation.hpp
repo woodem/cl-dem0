@@ -56,7 +56,7 @@ namespace clDem{
 
 		Simulation(int pNum=-1,int dNum=-1, const string& opts=""){
 			scene=Scene_new();
-			maxScheduledSteps=10;
+			maxScheduledSteps=-1;
 			initCl(pNum,dNum,opts);
 		}
 		void initCl(int pNum, int dNum, const string& opts);

@@ -113,7 +113,7 @@ namespace clDem{
 		const int maxLoop=-1;
 		int loop=0;
 		while(true){
-			nSteps=std::min(nSteps,maxScheduledSteps);
+			if(maxScheduledSteps>0) nSteps=std::min(nSteps,maxScheduledSteps);
 			loop++;
 			if(maxLoop>0 && loop>maxLoop) throw std::runtime_error("Too many interrupt loops!?");
 			LOOP_DBG("scheduling ["<<nSteps<<","<<substepStart<<"]");

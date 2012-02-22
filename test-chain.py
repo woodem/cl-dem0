@@ -19,7 +19,7 @@ sim=clDem.Simulation(pNum,dNum) # pass from command-line
 sim.scene.materials=[clDem.ElastMat(young=E,density=rho)]
 sim.scene.gravity=(0,0,-10)
 sim.scene.damping=.4
-sim.scene.verletDist=.05*r
+sim.maxScheduledSteps=-1 #unlimited
 
 for i in range(0,N):
 	sim.par.append(clDem.mkSphere((2*r*i,0,0),r,sim,matId=0,fixed=(i in supports)))

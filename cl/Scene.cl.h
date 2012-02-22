@@ -81,7 +81,7 @@ struct Scene Scene_new(){
 	s.step=-1;
 	s.gravity=Vec3_set(0,0,0);
 	s.damping=0.;
-	s.verletDist=0.; // no interrupts due to spheres getting out of bboxes
+	s.verletDist=-1.; // no interrupts due to spheres getting out of bboxes
 	Scene_interrupt_reset(&s);
 	s.updateBboxes=false;
 	// no materials
