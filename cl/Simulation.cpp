@@ -26,7 +26,7 @@ namespace clDem{
 		bufs.par=writeVecBuf(par,bufs.parSize);
 		bufs.con=writeVecBuf(con,bufs.conSize);
 		bufs.clumps=writeVecBuf(clumps,bufs.clumpsSize); /* should be read-only */
-		bboxes.resize(par.size()*6);
+		bboxes.resize(par.size()*6,NAN); // 
 		bufs.bboxes=writeVecBuf(bboxes,bufs.bboxesSize);
 		if(wait) queue.finish();
 	}
@@ -93,25 +93,82 @@ namespace clDem{
 		//if(!log.empty()) std::cerr<<log<<std::endl;
 		std::cerr<<"** Program compiled.\n";
 	};
-	void Simulation::run(int nSteps){
+	//#define LOOP_DBG(a) std::cerr<<a<<std::endl;
+	#define LOOP_DBG(a)
+	void Simulation::run(int _nSteps){
 		// create buffers, enqueue copies to the device
 		writeBufs();
+		long goalStep=scene.step+_nSteps;
 		/*
 		TODO: create loop which will handle interrupted runs here
 		and will not return until the required number of steps
 		completes successfully
 		*/
+		int nSteps(_nSteps);
+		int substepStart=0;
+		int rollbacks=0;
+		const int rollbacksMax=10;
+		bool allOk;
+		Scene SS;
+		const int maxLoop=-1;
+		int loop=0;
+		while(true){
+			nSteps=std::min(nSteps,maxScheduledSteps);
+			loop++;
+			if(maxLoop>0 && loop>maxLoop) throw std::runtime_error("Too many interrupt loops!?");
+			LOOP_DBG("scheduling ["<<nSteps<<","<<substepStart<<"]");
 			// create kernels, set their args, enqueue them (non-blocking)
-			runKernels(nSteps);
-			queue.finish();
+			runKernels(nSteps,substepStart);
+			// read the scene object to a temporary object
+			readBuf(bufs.scene,SS,/*wait*/true);
+			LOOP_DBG("{"<<SS.step<<"}");
 			// check interrupts here etc
+			if(SS.interrupt.step>=0){
+				LOOP_DBG(cerr<<"Interrupt: "<<(SS.interrupt.destructive?"destructive":"non-destructive")<<", step="<<SS.interrupt.step<<", substep="<<SS.interrupt.substep<<", what="<<SS.interrupt.what);
+				// non-destructive interrupts: handle them and queue remaining kernels
+				if(!SS.interrupt.destructive){
+					switch(SS.interrupt.what){
+						case INT_BBOXES_UPDATED:
+							cerr<<"** handling updated bboxes --"<<endl;
+							break;
+						default: throw std::runtime_error("Unknown non-destructive interrupt "+lexical_cast<string>(SS.interrupt.what));
+					}
+					//
+					substepStart=SS.interrupt.substep+1;
+					SS.step=SS.interrupt.step;
+					nSteps=goalStep-SS.interrupt.step;
+					// write scene without interrupts back to the device
+					Scene_interrupt_reset(&SS);
+					LOOP_DBG("SS.step="<<SS.step);
+					bufs.scene=writeBuf(SS,/*wait*/true); 
+				} else { // destructive: rollback device state to what we sent last time, re-run everything since then
+					switch(SS.interrupt.what){
+						default: throw std::runtime_error("Unknown destructive interrupt "+lexical_cast<string>(SS.interrupt.what));
+					}
+					if(rollbacks>=rollbacksMax) throw std::runtime_error("Too many rollbacks ("+lexical_cast<string>(rollbacks)+", giving up.");
+					rollbacks++;
+					cerr<<"Rollback no. "<<rollbacks<<" to step "<<scene.step<<endl;
+					//
+					nSteps=goalStep-scene.step;
+					substepStart=0;
+					writeBufs();
+				}
+			} else {
+				if(SS.step==goalStep) break;
+				if(SS.step>goalStep) abort();
+				nSteps=goalStep-SS.step;
+				substepStart=0;
+			}
+		};
 		/* end interrupt loop */
-		readBufs();
+		readBufs(/*wait*/true);
 	}
 	/* enqueue kernels for nSteps; the first step can start at step substepStart,
-	which is 0 by default (beginning of the whole timestep) */
+	which is 0 by default (beginning of the whole timestep).
+	nSteps can be 0, in which case only remaining substeps will be added only
+	*/
 	void Simulation::runKernels(int nSteps, int substepStart){
-		for(int step=0; step<nSteps; step++){
+		for(int step=0; step<nSteps+(substepStart>0?1:0); step++){
 			int substepLast=-1;
 			for(int substep=(step==0?substepStart:0); clDemKernels[substep].name; substep++){
 				const KernelInfo& ki=clDemKernels[substep];
@@ -248,3 +305,9 @@ namespace clDem{
 		}
 	#endif
 };
+
+py::tuple Simulation::getBbox(par_id_t id){
+	if(bboxes.size()<id*6 || id<0) throw std::runtime_error("No bbox defined for particle #"+lexical_cast<string>(id));
+	return py::make_tuple(Vector3r(bboxes[id*6+0],bboxes[id*6+1],bboxes[id*6+2]),Vector3r(bboxes[id*6+3],bboxes[id*6+4],bboxes[id*6+5]));
+}
+

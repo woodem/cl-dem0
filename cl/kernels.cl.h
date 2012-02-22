@@ -9,7 +9,7 @@
 CLDEM_NAMESPACE_BEGIN()
 
 // substep numbers here
-enum _substeps{ SUB_nextTimestep=0, SUB_integrator, SUB_updateBboxes, SUB_contCompute, SUB_forcesToParticles, };
+enum _substeps{ SUB_nextTimestep=0, SUB_integrator, SUB_updateBboxes, SUB_contCompute, SUB_forcesToParticles };
 
 #ifdef __cplusplus
 /* how is kernel parallellized: single (task), over particles, over contacts */
@@ -50,7 +50,7 @@ CLDEM_NAMESPACE_END()
 #ifdef cl_amd_printf
 	#define PRINT_TRACE(name)
 #else
-	#define PRINT_TRACE(name) { if(get_global_id(0)==0) printf("%s:%-4d %4ld/%d %s\n",__FILE__,__LINE__,scene->step,substep,name); }
+	#define PRINT_TRACE(name) // { if(get_global_id(0)==0) printf("%s:%-4d %4ld/%d %s\n",__FILE__,__LINE__,scene->step,substep,name); }
 #endif
 
 #define TRYLOCK(a) atom_cmpxchg(a,0,1)
@@ -86,12 +86,16 @@ void Scene_energyZeroNonincremental(global struct Scene* scene){
 kernel void nextTimestep_1(KERNEL_ARGUMENT_LIST){
 	const int substep=SUB_nextTimestep;
 	scene->step++;
+	//PRINT_TRACE("** nextTimestep_1");
 	if(scene->step>0 && Scene_skipKernel(/*use new value already, but without assigning it to scene*/scene,substep)) return;
 	PRINT_TRACE("nextTimestep_1");
 
 	// if step is -1, we are at the very beginning
 	// keep time at 0, only increase step number
 	if(scene->step>0) scene->t+=scene->dt;
+
+	scene->updateBboxes=false;
+
 	#ifdef TRACK_ENERGY
 		Scene_energyZeroNonincremental(scene);
 	#endif
@@ -164,7 +168,7 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 
 	// is this safe for multi-threaded? is the new value always going to be written?
 	// it is not read until in the next kernel
-	if(Vec3_sqNorm(p->pos-p->bboxPos)>pown(scene->verletDist,2)) scene->updateBboxes=true;
+	if(scene->verletDist>=0 && Vec3_sqNorm(p->pos-p->bboxPos)>pown(scene->verletDist,2)) scene->updateBboxes=true;
 }
 
 /** This kernel runs only when INT_OUT_OF_BBOX is set **/
@@ -184,13 +188,15 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
 			break;
 		default: /* */;
 	}
+	p->bboxPos=p->pos;
 	mn-=(Vec3)scene->verletDist;
 	mx+=(Vec3)scene->verletDist;
 	bboxes[id*6+0]=mn.x; bboxes[id*6+1]=mn.y; bboxes[id*6+2]=mn.z;
 	bboxes[id*6+3]=mx.x; bboxes[id*6+4]=mx.y; bboxes[id*6+5]=mx.z;
+	//printf("%ld: %v3g±(%g+%g) %v3g %v3g\n",id,p->pos,scene->verletDist,p->shape.sphere.radius,mn,mx);
 
 	// enable this once the host code is able to process interrupts accordingly
-	#if 0
+	#if 1
 		// it is enough that only the 0th thread sets the interrupt
 		if(id==0) Scene_interrupt_set(scene,substep,INT_BBOXES_UPDATED,/*destructive*/false);
 	#endif

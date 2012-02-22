@@ -66,6 +66,9 @@ BOOST_PYTHON_MODULE(_clDem){
 	custom_clType_from_eigType<Mat3,Matrix3r,9>();
 	custom_clType_from_eigType<Quat,Quaternionr,4>();
 
+	py::class_<std::vector<cl_float>>("FloatList").def(py::vector_indexing_suite<std::vector<cl_float>>());
+	py::class_<std::vector<cl_double>>("DoubleList").def(py::vector_indexing_suite<std::vector<cl_double>>());
+
 	Particle_cl_h_expose();
 	Contact_cl_h_expose();
 	Scene_cl_h_expose();

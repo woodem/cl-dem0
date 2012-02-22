@@ -54,9 +54,9 @@ struct Scene{
 	Real dt;
 	long step;
 	struct Interrupt {
-		int step; // when -1, no interrupt; // FIXME: should be long, but there are no atomics on longs!
-		int substep;
-		int what;
+		cl_int step; // when -1, no interrupt; // FIXME: should be long, but there are no atomics on longs!
+		cl_int substep;
+		cl_int what;
 		cl_bool destructive;
 	} interrupt;
 	Vec3 gravity;
@@ -69,6 +69,11 @@ struct Scene{
 };
 
 
+#ifdef __cplusplus
+void Scene_interrupt_reset(struct Scene* s){
+	s->interrupt.step=-1;
+	s->interrupt.substep=s->interrupt.what=s->interrupt.destructive=0;
+}
 struct Scene Scene_new(){
 	struct Scene s;
 	s.t=0;
@@ -76,9 +81,8 @@ struct Scene Scene_new(){
 	s.step=-1;
 	s.gravity=Vec3_set(0,0,0);
 	s.damping=0.;
-	s.verletDist=0.;
-	s.interrupt.step=-1;
-	s.interrupt.substep=s.interrupt.what=s.interrupt.destructive=0;
+	s.verletDist=0.; // no interrupts due to spheres getting out of bboxes
+	Scene_interrupt_reset(&s);
 	s.updateBboxes=false;
 	// no materials
 	for(int i=0; i<SCENE_MAT_NUM; i++) mat_matT_set_local(&s.materials[i],0); 
@@ -86,16 +90,20 @@ struct Scene Scene_new(){
 	for(int i=0; i<SCENE_ENERGY_NUM; i++){ s.energy[i]=0; s.energyMutex[i]=0; }
 	return s;
 }
+#endif
+
 
 #ifdef __OPENCL_VERSION__
 bool Scene_interrupt_set(global struct Scene* s, int substep, int what, bool destructive){
 	if(atom_cmpxchg(&s->interrupt.step,-1,s->step)==-1){
-		printf("%d/%d: Setting interrupt %d\n",/*make AMD happy*/(int)s->step,substep,what);
+		// enabling this printf makes some bboxes NaN?!!!
+		// printf("%d/%d: Setting interrupt %d\n",/*make AMD happy*/(int)s->step,substep,what);
 		s->interrupt.substep=substep;
 		s->interrupt.what=what;
 		s->interrupt.destructive=destructive;
 		return true;
 	}
+	printf("%d/%d: Interrupt %d not set!\n",(int)s->step,substep,what);
 	return false;
 }
 
@@ -173,15 +181,24 @@ CLDEM_NAMESPACE_END();
 		for(int i=0; i<SCENE_ENERGY_NUM; i++){ sum+=s->energy[i]; absSum+=std::abs(s->energy[i]); }
 		return sum/absSum;  // return NaN for absSum==0
 	}
+	py::dict Scene_interrupt_get(Scene *s){
+		py::dict ret;
+		ret["step"]=s->interrupt.step;
+		ret["substep"]=s->interrupt.substep;
+		ret["what"]=s->interrupt.what;
+		ret["destructive"]=(bool)s->interrupt.destructive;
+		return ret;
+	}
 
 	void Scene_cl_h_expose(){
 		VECTOR_SEQ_CONV(Material);
 		py::class_<ElastMat>("ElastMat").def("__init__",ElastMat_new).PY_RW(ElastMat,density).PY_RW(ElastMat,young);
 
 		py::class_<Scene>("Scene").def("__init__",Scene_new)
-			.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,step).PY_RWV(Scene,gravity).PY_RW(Scene,damping)
+			.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,step).PY_RWV(Scene,gravity).PY_RW(Scene,damping).PY_RW(Scene,verletDist)
 			.add_property("materials",Scene_mats_get,Scene_mats_set)
 			.add_property("energy",Scene_energy_get) //,py::arg("omitZero")=true)
+			.add_property("interrupt",Scene_interrupt_get)
 			.def("energyReset",Scene_energyReset)
 			.def("energyTotal",Scene_energyTotal)
 			.def("energyError",Scene_energyError)

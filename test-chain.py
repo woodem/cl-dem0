@@ -19,6 +19,7 @@ sim=clDem.Simulation(pNum,dNum) # pass from command-line
 sim.scene.materials=[clDem.ElastMat(young=E,density=rho)]
 sim.scene.gravity=(0,0,-10)
 sim.scene.damping=.4
+sim.scene.verletDist=.05*r
 
 for i in range(0,N):
 	sim.par.append(clDem.mkSphere((2*r*i,0,0),r,sim,matId=0,fixed=(i in supports)))
@@ -27,9 +28,10 @@ for i in range(0,N):
 		sim.con.append(clDem.Contact(ids=(i-1,i)))
 sim.scene.dt=.2*sim.pWaveDt()
 
-for i in range(0,100):
+for i in range(0,5):
 	sim.run(10)
-	print 'Saved',sim.saveVtk('/tmp/chain',compress=False,ascii=True)
+	print '10 steps done'
+#	print 'Saved',sim.saveVtk('/tmp/chain',compress=False,ascii=True)
 
 #clDem.briefOutput()
 #clDem.showSim(sim)

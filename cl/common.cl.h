@@ -19,6 +19,7 @@
 	#define cl_short2 short2
 	#define cl_long2 long2
 	#define cl_bool bool
+	#define cl_int int
 	// printf in OpenCL code
 	#ifdef cl_intel_printf
 		#pragma OPENCL EXTENSION cl_intel_printf: enable
@@ -37,6 +38,12 @@
 //#else
 //	#error cl_khr_global_int32_base_atomics extension not supported
 //#endif
+
+#ifdef __cplusplus
+	#include<Eigen/Core>
+	#include<Eigen/Geometry>
+	typedef Eigen::Matrix<Real,3,1> Vector3r;
+#endif
 
 
 /* to avoid symbol clashes in shared libs, define our namespace clDem */

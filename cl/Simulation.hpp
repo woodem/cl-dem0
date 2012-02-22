@@ -19,22 +19,19 @@ namespace clDem{
 		cl::CommandQueue queue;
 		cl::Program program;
 
-		long lastWriteStep;
-		int lastWriteSubstep;
-
 		struct Buffers{
 			size_t parSize,conSize,clumpsSize,bboxesSize;
 			cl::Buffer scene,par,con,clumps,bboxes;
 		} bufs;
 
 		/* read and write fixed-size objects (all async, use queue.finish() to wait) */
-		template<typename T> cl::Buffer writeBuf(const T& obj){
+		template<typename T> cl::Buffer writeBuf(const T& obj,bool wait=false){
 			cl::Buffer buf(context,CL_MEM_READ_WRITE,sizeof(T),NULL);
-			queue.enqueueWriteBuffer(buf,CL_FALSE,0,sizeof(T),&obj);
+			queue.enqueueWriteBuffer(buf,wait?CL_TRUE:CL_FALSE,0,sizeof(T),&obj);
 			return buf;
 		}
-		template<typename T> void readBuf(cl::Buffer& buf, T& obj){
-			queue.enqueueReadBuffer(buf,CL_FALSE,0,sizeof(T),&obj);
+		template<typename T> void readBuf(cl::Buffer& buf, T& obj,bool wait=false){
+			queue.enqueueReadBuffer(buf,wait?CL_TRUE:CL_FALSE,0,sizeof(T),&obj);
 		}
 		/* read and write std::vector containers (all async) */
 		template<typename T> cl::Buffer writeVecBuf(const std::vector<T>& obj, size_t& writtenSize){
@@ -54,13 +51,18 @@ namespace clDem{
 		void runKernels(int nSteps, int substepStart=0);
 		cl::Kernel makeKernel(const char* name);
 
+		int maxScheduledSteps;
+
+
 		Simulation(int pNum=-1,int dNum=-1, const string& opts=""){
 			scene=Scene_new();
+			maxScheduledSteps=10;
 			initCl(pNum,dNum,opts);
 		}
 		void initCl(int pNum, int dNum, const string& opts);
 		void run(int nSteps);
 		Real pWaveDt();
+		py::tuple getBbox(par_id_t id);
 		py::list saveVtk(string prefix, bool compress=true, bool ascii=false);
 	};
 
@@ -71,10 +73,13 @@ void Simulation_hpp_expose(){
 		.PY_RW(Simulation,scene)
 		.PY_RW(Simulation,par)
 		.PY_RW(Simulation,con)
+		.PY_RW(Simulation,bboxes)
+		.PY_RW(Simulation,maxScheduledSteps)
 		.def("run",&Simulation::run)
 		#ifdef CLDEM_VTK
 		.def("saveVtk",&Simulation::saveVtk,(py::arg("prefix"),py::arg("compress")=true,py::arg("ascii")=false))
 		#endif
 		.def("pWaveDt",&Simulation::pWaveDt)
+		.def("getBbox",&Simulation::getBbox)
 	;
 }
