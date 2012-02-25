@@ -6,15 +6,15 @@
 CLDEM_NAMESPACE_BEGIN();
 
 struct L1Geom{ Real uN; };
-struct L1Geom L1Geom_new(){ struct L1Geom ret; ret.uN=NAN; return ret; }
+static struct L1Geom L1Geom_new(){ struct L1Geom ret; ret.uN=NAN; return ret; }
 
 struct L6Geom{ Real uN; Vec3 vel; Vec3 angVel; };
-struct L6Geom L6Geom_new(){ struct L6Geom ret; ret.uN=NAN; ret.vel=ret.angVel=Vec3_set(0.,0.,0.); return ret; }
+static struct L6Geom L6Geom_new(){ struct L6Geom ret; ret.uN=NAN; ret.vel=ret.angVel=Vec3_set(0.,0.,0.); return ret; }
 
 enum _geom_enum { Geom_L1Geom=1, Geom_L6Geom };
 
 struct NormPhys{ Real kN; };
-struct NormPhys NormPhys_new(){ struct NormPhys ret; ret.kN=NAN; return ret; }
+static struct NormPhys NormPhys_new(){ struct NormPhys ret; ret.kN=NAN; return ret; }
 
 enum _phys_enum { Phys_NormPhys=1, };
 
@@ -46,16 +46,17 @@ constant flagSpec con_flag_shapesT={CON_OFF_shapesT,CON_LEN_shapesT};
 constant flagSpec con_flag_geomT  ={CON_OFF_geomT,CON_LEN_geomT};
 constant flagSpec con_flag_physT  ={CON_OFF_physT,CON_LEN_physT};
 #define CONTACT_FLAG_GET_SET(what) \
-	int con_##what##_get(global const struct Contact *c){ return flags_get(c->flags,con_flag_##what); } \
-	void con_##what##_set(global struct Contact *c, int val){ flags_set(&c->flags,con_flag_##what,val); } \
-	int con_##what##_get_local(const struct Contact *c){ return flags_get(c->flags,con_flag_##what); } \
-	void con_##what##_set_local(struct Contact *c, int val){ flags_set_local(&c->flags,con_flag_##what,val); } 
+	inline int con_##what##_get(global const struct Contact *c){ return flags_get(c->flags,con_flag_##what); } \
+	inline void con_##what##_set(global struct Contact *c, int val){ flags_set(&c->flags,con_flag_##what,val); } \
+	inline int con_##what##_get_local(const struct Contact *c){ return flags_get(c->flags,con_flag_##what); } \
+	inline void con_##what##_set_local(struct Contact *c, int val){ flags_set_local(&c->flags,con_flag_##what,val); } 
 CONTACT_FLAG_GET_SET(shapesT);
 CONTACT_FLAG_GET_SET(geomT);
 CONTACT_FLAG_GET_SET(physT);
 
-struct Contact Contact_new(){
+static struct Contact Contact_new(){
 	struct Contact c;
+	c.ids.s0=-1; c.ids.s1=-1;
 	c.pos=Vec3_set(0,0,0);
 	c.ori=Mat3_identity();
 	c.force=c.torque=Vec3_set(0,0,0);
@@ -75,9 +76,10 @@ CLDEM_NAMESPACE_END();
 #ifdef __cplusplus
 	// needed for py::indexing_suite
 	namespace clDem{
-		bool operator==(const Contact& a, const Contact& b){ return memcmp(&a,&b,sizeof(Contact))==0; }	
+		inline bool operator==(const Contact& a, const Contact& b){ return memcmp(&a,&b,sizeof(Contact))==0; }	
 	};
 
+	static
 	py::object Contact_geom_get(Contact* c){
 		int geomT=con_geomT_get(c);
 		switch(geomT){
@@ -88,6 +90,7 @@ CLDEM_NAMESPACE_END();
 		}
 	}
 
+	static
 	void Contact_geom_set(Contact *c,py::object g){
 		if(g==py::object()){ con_geomT_set(c,0); return; }
 		py::extract<L1Geom> l1g(g);
@@ -95,6 +98,7 @@ CLDEM_NAMESPACE_END();
 		else throw std::runtime_error("Unknown geom object.");
 	}
 
+	static
 	py::object Contact_phys_get(Contact* c){
 		int physT=con_physT_get(c);
 		switch(physT){
@@ -104,6 +108,7 @@ CLDEM_NAMESPACE_END();
 		}
 	}
 
+	static
 	void Contact_phys_set(Contact *c,py::object p){
 		if(p==py::object()){ con_physT_set(c,0); return; }
 		py::extract<NormPhys> np(p);
@@ -111,7 +116,7 @@ CLDEM_NAMESPACE_END();
 		else throw std::runtime_error("Unknown geom object.");
 	}
 	
-
+	static
 	void Contact_cl_h_expose(){
 		py::class_<L1Geom>("L1Geom").def("__init__",L1Geom_new).PY_RW(L1Geom,uN);
 		py::class_<L6Geom>("L6Geom").def("__init__",L6Geom_new).PY_RWV(L6Geom,uN).PY_RWV(L6Geom,vel).PY_RWV(L6Geom,angVel);

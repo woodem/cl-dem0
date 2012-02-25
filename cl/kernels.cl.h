@@ -9,11 +9,11 @@
 CLDEM_NAMESPACE_BEGIN()
 
 // substep numbers here
-enum _substeps{ SUB_nextTimestep=0, SUB_integrator, SUB_updateBboxes, SUB_contCompute, SUB_forcesToParticles };
+enum _substeps{ SUB_nextTimestep=0, SUB_integrator, SUB_updateBboxes, SUB_checkPotCon, SUB_contCompute, SUB_forcesToParticles };
 
 #ifdef __cplusplus
-/* how is kernel parallellized: single (task), over particles, over contacts */
-enum _kargs{ KARGS_SINGLE, KARGS_PAR, KARGS_CON };
+/* how is kernel parallellized: single (task), over particles, over contacts, over potential contacts */
+enum _kargs{ KARGS_SINGLE, KARGS_PAR, KARGS_CON, KARGS_POT };
 /* information about kernel necessary for the queueing and interrupt logic */
 struct KernelInfo {
 	int substep;
@@ -21,10 +21,11 @@ struct KernelInfo {
 	int argsType;
 };
 /* this is the loop which will be running */
-struct KernelInfo clDemKernels[]={
+static struct KernelInfo clDemKernels[]={
 	{ SUB_nextTimestep     , "nextTimestep_1"    , KARGS_SINGLE },
 	{ SUB_integrator       , "integrator_P"      , KARGS_PAR },
 	{ SUB_updateBboxes     , "updateBboxes_P"    , KARGS_PAR },
+	{ SUB_checkPotCon      , "checkPotCon_PC"    , KARGS_POT },
 	{ SUB_contCompute      , "contCompute_C"     , KARGS_CON },
 	{ SUB_forcesToParticles, "forcesToParticles_C", KARGS_CON },
 	{ }, /*sentinel*/
@@ -39,7 +40,7 @@ CLDEM_NAMESPACE_END()
 
 
 // all kernels take the same set of arguments, for simplicity in the host code
-#define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int* clumps, global float* bboxes
+#define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int *conFree, global long2* pot, global int *potFree, global int* clumps, global float* bboxes
 
 // return when either interrupt before NAME was set in this or previous steps
 // or when interrupt NAME or after was set in previous steps.
@@ -195,11 +196,8 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
 	bboxes[id*6+3]=mx.x; bboxes[id*6+4]=mx.y; bboxes[id*6+5]=mx.z;
 	//printf("%ld: %v3g±(%g+%g) %v3g %v3g\n",id,p->pos,scene->verletDist,p->shape.sphere.radius,mn,mx);
 
-	// enable this once the host code is able to process interrupts accordingly
-	#if 1
-		// it is enough that only the 0th thread sets the interrupt
-		if(id==0) Scene_interrupt_set(scene,substep,INT_BBOXES_UPDATED,/*destructive*/false);
-	#endif
+	// not immediate since all threads must finish
+	if(id==0) Scene_interrupt_set(scene,substep,INT_BBOXES_UPDATED,/*flags*/INT_NOT_IMMEDIATE | INT_NOT_DESTRUCTIVE);
 }
 
 void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, const Real r1, const Real r2, Real dt){
@@ -235,14 +233,62 @@ void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 
 	c->geom.l6g.uN=uN;
 }
 
-// #define GEOM_L1GEOM
+kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
+	const int substep=SUB_checkPotCon;
+	if(Scene_skipKernel(scene,substep)) return;
+	size_t cid=get_global_id(0);
+	if(cid>=scene->arrSize[ARR_POT]) return; // in case we are past real number of contacts
+	par_id2_t ids=pot[cid];
+	if(ids.s0<0 || ids.s1<0) return; // deleted contact
+	PRINT_TRACE("checkPotCon_PC");
+	
+	global const struct Particle* p1=&(par[ids.s0]);
+	global const struct Particle* p2=&(par[ids.s1]);
+	switch(SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2))){
+		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
+			Real r1=p1->shape.sphere.radius, r2=p2->shape.sphere.radius;
+			if(distance(p1->pos,p2->pos)>=r1+r2){
+				// printf("pot ##%d+%d: distance %g.\n",(int)ids.s0,(int)ids.s1,distance(p1->pos,p2->pos)-(r1+r2));
+				return;
+			}
+			break;
+		}
+		default: /* error? */ return;
+	};
+	printf("Creating ##%ld+%ld\n",ids.s0,ids.s1);
+	// the contact is real, create it
+	// this will be moved to a separate function later
+	pot[cid]=(par_id2_t)(-1,-1);
+	// append one item to potFree
+	int ix=Scene_arr_append(scene,ARR_POTFREE); // index where to write free slot
+	//printf("potFree[%d]\n",ix);
+	// not immediate, since other work-items might increase the required capacity yet more
+	if(ix<0){ Scene_interrupt_set(scene,substep,INT_ARR_POTFREE,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+	potFree[ix]=cid;
+	ix=Scene_arr_free_or_append(scene,conFree,ARR_CONFREE,ARR_CON,/*shrink*/true);
+	if(ix<0){ Scene_interrupt_set(scene,substep,INT_ARR_CON,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+	// actually create the new contact here
+	con[ix]=Contact_new();
+	con[ix].ids=ids;
+};
+
+bool Bbox_overlap(global float* A, global float* B){
+	return
+		A[0]<B[3] && B[0]<A[3] && // xMinA<xMaxB && xMinB<xMaxA
+		A[1]<B[4] && B[1]<A[4] &&
+		A[2]<B[5] && B[2]<A[5];
+}
 
 kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	const int substep=SUB_contCompute;
 	if(Scene_skipKernel(scene,substep)) return;
+	size_t cid=get_global_id(0);
+	if(cid>=scene->arrSize[ARR_CON]) return; // in case we are past real number of contacts
+	global struct Contact *c=&(con[cid]);
+	if(c->ids.s0<0 || c->ids.s1<0) return; // deleted contact
 	PRINT_TRACE("contCompute_C");
 
-	global struct Contact *c=&(con[get_global_id(0)]);
+	bool contactBroken=false;
 	global const struct Particle* p1=&(par[c->ids.s0]);
 	global const struct Particle* p2=&(par[c->ids.s1]);
 	/* create geometry for new contacts */
@@ -252,7 +298,9 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 			Real dist=distance(p1->pos,p2->pos);
 			Vec3 normal=(p2->pos-p1->pos)/dist;
 			Real uN=dist-(r1+r2);
-			// if(con_geomT_get(c)==0 && uN>0) return; // potential contact only created if uN<=0
+			#ifdef L6GEOM_BREAK_TENSION
+				if(uN>0) contactBroken=true;
+			#endif
 			Vec3 contPt=p1->pos+(r1+.5*uN)*normal;
 			computeL6GeomGeneric(c,p1->pos,p1->vel,p1->angVel,p2->pos,p2->vel,p2->angVel,normal,contPt,uN,r1,r2,scene->dt);
 			break;
@@ -260,7 +308,7 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 		default: /* signal error */ ;
 	}
 	/* update physical params: only if there are no physical params yet */
-	if(con_physT_get(c)==0){
+	if(!contactBroken && con_physT_get(c)==0){
 		int matId1=par_matId_get(p1), matId2=par_matId_get(p2);
 		global const struct Material* m1=&(scene->materials[matId1]);
 		global const struct Material* m2=&(scene->materials[matId2]);
@@ -283,40 +331,65 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 		}
 	}
 	/* contact law */
-	int geomT=con_geomT_get(c), physT=con_physT_get(c);
-	switch(GEOMT_PHYST_COMBINE(geomT,physT)){
-		case GEOMT_PHYST_COMBINE(Geom_L1Geom,Phys_NormPhys):
-			c->force=(Vec3)(c->geom.l1g.uN*c->phys.normPhys.kN,0,0);
-			c->torque=(Vec3)0.;
-			break;
-		case GEOMT_PHYST_COMBINE(Geom_L6Geom,Phys_NormPhys):{
-			#ifndef BEND_CHARLEN
-				#define BEND_CHARLEN INFINITY
-			#endif
-			#ifndef SHEAR_KT_DIV_KN
-				#define SHEAR_KT_DIV_KN 0.
-			#endif
-			// [ HACK: this will be removed once the params are in the material
-			Real charLen=BEND_CHARLEN;
-			const Real ktDivKn=SHEAR_KT_DIV_KN;
-			// ]
-			Vec3 kntt=(Vec3)(c->phys.normPhys.kN,c->phys.normPhys.kN*ktDivKn,c->phys.normPhys.kN*ktDivKn);
-			Vec3 ktbb=kntt/charLen;
-			c->force+=scene->dt*c->geom.l6g.vel*kntt;
-			c->torque+=scene->dt*c->geom.l6g.angVel*ktbb;
-			((global Real*)&(c->force))[0]=c->phys.normPhys.kN*c->geom.l6g.uN; // set this one directly
-			#ifdef TRACK_ENERGY
-				Real E=.5*pown(c->force.s0,2)/kntt.s0;  // normal stiffness is always non-zero
-				if(kntt.s1!=0.) E+=.5*dot(c->force.s12,c->force.s12/kntt.s12);
-				if(ktbb.s0!=0.) E+=.5*pown(c->torque.s0,2)/ktbb.s0;
-				if(ktbb.s1!=0.) E+=.5*dot(c->torque.s12,c->torque.s12/ktbb.s12);
-				ADD_ENERGY(scene,elast,E);
-				// gives NaN when some stiffness is 0
-				// ADD_ENERGY(scene,elast,.5*dot(c->force,c->force/kntt)+.5*dot(c->torque,c->torque/ktbb));
-			#endif
-			break;
+	if(!contactBroken){
+		int geomT=con_geomT_get(c), physT=con_physT_get(c);
+		switch(GEOMT_PHYST_COMBINE(geomT,physT)){
+			case GEOMT_PHYST_COMBINE(Geom_L1Geom,Phys_NormPhys):
+				c->force=(Vec3)(c->geom.l1g.uN*c->phys.normPhys.kN,0,0);
+				c->torque=(Vec3)0.;
+				break;
+			case GEOMT_PHYST_COMBINE(Geom_L6Geom,Phys_NormPhys):{
+				#ifndef BEND_CHARLEN
+					#define BEND_CHARLEN INFINITY
+				#endif
+				#ifndef SHEAR_KT_DIV_KN
+					#define SHEAR_KT_DIV_KN 0.
+				#endif
+				// [ HACK: this will be removed once the params are in the material
+				Real charLen=BEND_CHARLEN;
+				const Real ktDivKn=SHEAR_KT_DIV_KN;
+				// ]
+				Vec3 kntt=(Vec3)(c->phys.normPhys.kN,c->phys.normPhys.kN*ktDivKn,c->phys.normPhys.kN*ktDivKn);
+				Vec3 ktbb=kntt/charLen;
+				c->force+=scene->dt*c->geom.l6g.vel*kntt;
+				c->torque+=scene->dt*c->geom.l6g.angVel*ktbb;
+				((global Real*)&(c->force))[0]=c->phys.normPhys.kN*c->geom.l6g.uN; // set this one directly
+				#ifdef TRACK_ENERGY
+					Real E=.5*pown(c->force.s0,2)/kntt.s0;  // normal stiffness is always non-zero
+					if(kntt.s1!=0.) E+=.5*dot(c->force.s12,c->force.s12/kntt.s12);
+					if(ktbb.s0!=0.) E+=.5*pown(c->torque.s0,2)/ktbb.s0;
+					if(ktbb.s1!=0.) E+=.5*dot(c->torque.s12,c->torque.s12/ktbb.s12);
+					ADD_ENERGY(scene,elast,E);
+					// gives NaN when some stiffness is 0
+					// ADD_ENERGY(scene,elast,.5*dot(c->force,c->force/kntt)+.5*dot(c->torque,c->torque/ktbb));
+				#endif
+				break;
+			}
+			default: /* error */ ;
 		}
-		default: /* error */ ;
+	}
+
+	if(contactBroken){
+		printf("Breaking ##%ld+%ld\n",c->ids.s0,c->ids.s1);
+		// append contact to conFree (with possible allocation failure)
+		// if there is still bbox overlap, append to pot
+		// delete contact from con
+		int ix=Scene_arr_append(scene,ARR_CONFREE); // index where to write free slot
+		//printf("ix=%d\n",ix);
+		if(ix<0){ Scene_interrupt_set(scene,substep,INT_ARR_CONFREE,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+		conFree[ix]=cid;
+		// if there is overlap, put back to potential contacts
+		//printf("bboxes (%v3g)--(%v3g)  (%v3g)--(%v3g)\n",(Vec3)(bboxes[6*c->ids.s0],bboxes[6*c->ids.s0+1],bboxes[6*c->ids.s0+2]),(Vec3)(bboxes[6*c->ids.s0+3],bboxes[6*c->ids.s0+4],bboxes[6*c->ids.s0+5]),(Vec3)(bboxes[6*c->ids.s1],bboxes[6*c->ids.s1+1],bboxes[6*c->ids.s1+2]),(Vec3)(bboxes[6*c->ids.s1+3],bboxes[6*c->ids.s1+4],bboxes[6*c->ids.s1+5]));
+		if(Bbox_overlap(&(bboxes[6*c->ids.s0]),&(bboxes[6*c->ids.s1]))){
+			ix=Scene_arr_free_or_append(scene,potFree,ARR_POTFREE,ARR_POT,/*shrink*/true);
+			if(ix<0){
+				printf("Allocation of pot[] failed: size %d, allocated %d\n",scene->arrSize[ARR_POT],scene->arrAlloc[ARR_POT]);
+				Scene_interrupt_set(scene,substep,INT_ARR_POT,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return;
+			}
+			pot[ix]=c->ids;
+		}
+		// delete
+		*c=Contact_new(); // or just set ids=(-1,-1)?
 	}
 }
 

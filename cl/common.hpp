@@ -9,7 +9,6 @@ namespace py=boost::python;
 #define PY_RWV(clss,attr) add_property(BOOST_PP_STRINGIZE(attr),/*read access*/py::make_getter(&clss::attr,py::return_value_policy<py::return_by_value>()),/*write access*/make_setter(&clss::attr,py::return_value_policy<py::return_by_value>()))
 #define PY_RW(clss,attr) def_readwrite(BOOST_PP_STRINGIZE(attr),&clss::attr)
 
-
 // workaround for Contact alignment issues
 // http://thread.gmane.org/gmane.comp.python.c++/15639
 namespace boost {

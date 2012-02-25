@@ -8,10 +8,25 @@ namespace clDem{
 
 	struct Simulation{
 		Scene scene;
+		cl::Buffer sceneBuf;
+
+		enum { _par=0,_con,_conFree,_pot,_potFree,_clumps,_bboxes,_arrMax };
+		struct BufSize{ cl::Buffer buf; size_t size; };
+		BufSize bufSize[_arrMax];
+
 		vector<Particle> par;
 		vector<Contact> con;
+		vector<cl_int> conFree; // free slots in con
+		vector<cl_long2> pot; // potential contacts (only the id1,id2-tuple)
+		vector<cl_int> potFree; // free slots in pot
 		vector<par_id_t> clumps;
 		vector<cl_float> bboxes;
+
+		Simulation(int pNum=-1,int dNum=-1, const string& opts=""){
+			scene=Scene_new();
+			maxScheduledSteps=-1;
+			initCl(pNum,dNum,opts);
+		}
 
 		cl::Platform platform;
 		cl::Device device;
@@ -19,11 +34,12 @@ namespace clDem{
 		cl::CommandQueue queue;
 		cl::Program program;
 
-		struct Buffers{
-			size_t parSize,conSize,clumpsSize,bboxesSize;
-			cl::Buffer scene,par,con,clumps,bboxes;
-		} bufs;
-
+		#if 0
+			struct Buffers{
+				size_t parSize,conSize,clumpsSize,bboxesSize;
+				cl::Buffer scene,par,con,clumps,bboxes;
+			} bufs;
+		#endif
 		/* read and write fixed-size objects (all async, use queue.finish() to wait) */
 		template<typename T> cl::Buffer writeBuf(const T& obj,bool wait=false){
 			cl::Buffer buf(context,CL_MEM_READ_WRITE,sizeof(T),NULL);
@@ -34,19 +50,18 @@ namespace clDem{
 			queue.enqueueReadBuffer(buf,wait?CL_TRUE:CL_FALSE,0,sizeof(T),&obj);
 		}
 		/* read and write std::vector containers (all async) */
-		template<typename T> cl::Buffer writeVecBuf(const std::vector<T>& obj, size_t& writtenSize){
-			if(obj.empty()) throw std::runtime_error("Buffer created from std::vector<T> may not be empty.");
-			cl::Buffer buf(context,CL_MEM_READ_WRITE,sizeof(T)*obj.size(),NULL);
-			queue.enqueueWriteBuffer(buf,CL_FALSE,0,sizeof(T)*obj.size(),&(obj[0]));
-			writtenSize=obj.size();
-			return buf;
+		template<typename T> void writeVecBuf(std::vector<T>& obj, BufSize& bs){
+			if(obj.empty()) throw std::runtime_error("Buffer created from std::vector<"+string(typeid(T).name())+"> may not be empty.");
+			bs.buf=cl::Buffer(context,CL_MEM_READ_WRITE,sizeof(T)*obj.size(),NULL);
+			queue.enqueueWriteBuffer(bs.buf,CL_FALSE,0,sizeof(T)*obj.size(),obj.data());
+			bs.size=obj.size();
 		}
-		template<typename T> void readVecBuf(cl::Buffer& buf, std::vector<T>& obj, const size_t& writtenSize){
-			obj.resize(writtenSize); // in case size was changed meanwhile
-			queue.enqueueReadBuffer(buf,CL_FALSE,0,sizeof(T)*obj.size(),&(obj[0]));
+		template<typename T> void readVecBuf(std::vector<T>& obj, BufSize& bs){
+			obj.resize(bs.size); // in case size was changed meanwhile
+			queue.enqueueReadBuffer(bs.buf,CL_FALSE,0,sizeof(T)*obj.size(),obj.data());
 		}
 
-		void writeBufs(bool wait=true);
+		void writeBufs(bool setArrays, bool wait=true);
 		void readBufs(bool wait=true);
 		void runKernels(int nSteps, int substepStart=0);
 		cl::Kernel makeKernel(const char* name);
@@ -54,13 +69,8 @@ namespace clDem{
 		int maxScheduledSteps;
 
 
-		Simulation(int pNum=-1,int dNum=-1, const string& opts=""){
-			scene=Scene_new();
-			maxScheduledSteps=-1;
-			initCl(pNum,dNum,opts);
-		}
 		void initCl(int pNum, int dNum, const string& opts);
-		void run(int nSteps);
+		void run(int nSteps, bool resetArrays);
 		Real pWaveDt();
 		py::tuple getBbox(par_id_t id);
 		py::list saveVtk(string prefix, bool compress=true, bool ascii=false);
@@ -68,14 +78,21 @@ namespace clDem{
 
 };
 
+//static std::vector<Particle>* Simulation_par_get(Simulation* s){ return &(s->par); }
+//static void Simulation_par_set(Simulation* s, const std::vector<Particle>& par){ s->par.vec=par; }
+
+static
 void Simulation_hpp_expose(){
 	py::class_<Simulation>("Simulation",py::init<int,int,string>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1,py::arg("opts")="")))
 		.PY_RW(Simulation,scene)
 		.PY_RW(Simulation,par)
 		.PY_RW(Simulation,con)
-		.PY_RW(Simulation,bboxes)
+		.PY_RWV(Simulation,pot)
+		.PY_RWV(Simulation,conFree)
+		.PY_RWV(Simulation,potFree)
+		.PY_RWV(Simulation,bboxes)
 		.PY_RW(Simulation,maxScheduledSteps)
-		.def("run",&Simulation::run)
+		.def("run",&Simulation::run,(py::arg("nSteps"),py::arg("resetArrays")=true))
 		#ifdef CLDEM_VTK
 		.def("saveVtk",&Simulation::saveVtk,(py::arg("prefix"),py::arg("compress")=true,py::arg("ascii")=false))
 		#endif
@@ -83,3 +100,4 @@ void Simulation_hpp_expose(){
 		.def("getBbox",&Simulation::getBbox)
 	;
 }
+

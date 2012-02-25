@@ -1,4 +1,4 @@
-#include"Simulation.cpp"
+#include"Simulation.hpp"
 
 #include<eigen3/Eigen/Core>
 #include<eigen3/Eigen/Geometry>
@@ -66,8 +66,13 @@ BOOST_PYTHON_MODULE(_clDem){
 	custom_clType_from_eigType<Mat3,Matrix3r,9>();
 	custom_clType_from_eigType<Quat,Quaternionr,4>();
 
+	VECTOR_SEQ_CONV(cl_long2);
+	VECTOR_SEQ_CONV(int);
+
 	py::class_<std::vector<cl_float>>("FloatList").def(py::vector_indexing_suite<std::vector<cl_float>>());
+	custom_vector_from_seq<cl_float>();
 	py::class_<std::vector<cl_double>>("DoubleList").def(py::vector_indexing_suite<std::vector<cl_double>>());
+	custom_vector_from_seq<cl_double>();
 
 	Particle_cl_h_expose();
 	Contact_cl_h_expose();

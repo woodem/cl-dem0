@@ -6,7 +6,7 @@
 CLDEM_NAMESPACE_BEGIN();
 
 struct Sphere{	Real radius; };
-struct Sphere Sphere_new(){ struct Sphere ret; ret.radius=NAN; return ret; }
+inline struct Sphere Sphere_new(){ struct Sphere ret; ret.radius=NAN; return ret; }
 
 enum _shape_enum { Shape_Sphere=1, };
 
@@ -48,9 +48,9 @@ constant flagSpec par_flag_matId  ={PAR_OFF_matId,PAR_LEN_matId};
 // static_assert(par_flag_groups.x+par_flag_groups.y<=32); // don't overflow int
 
 #define PARTICLE_FLAG_GET_SET(what) \
-	int par_##what##_get(global const struct Particle *p){ return flags_get(p->flags,par_flag_##what); } \
-	void par_##what##_set(global struct Particle *p, int val){ flags_set(&(p->flags),par_flag_##what,val); } \
-	void par_##what##_set_local(struct Particle *p, int val){ flags_set_local(&(p->flags),par_flag_##what,val); }
+	inline int par_##what##_get(global const struct Particle *p){ return flags_get(p->flags,par_flag_##what); } \
+	inline void par_##what##_set(global struct Particle *p, int val){ flags_set(&(p->flags),par_flag_##what,val); } \
+	inline void par_##what##_set_local(struct Particle *p, int val){ flags_set_local(&(p->flags),par_flag_##what,val); }
 PARTICLE_FLAG_GET_SET(shapeT);
 PARTICLE_FLAG_GET_SET(clumped);
 PARTICLE_FLAG_GET_SET(stateT);
@@ -58,13 +58,13 @@ PARTICLE_FLAG_GET_SET(dofs);
 PARTICLE_FLAG_GET_SET(groups);
 PARTICLE_FLAG_GET_SET(matId);
 
-int dof_axis(int axis, int rot){ return 1<<(axis+(rot?3:0)); }
+inline int dof_axis(int axis, int rot){ return 1<<(axis+(rot?3:0)); }
 constant int par_dofs_trans=7; // 0b0000111
 constant int par_dofs_rot=56;  // 0b0111000
 constant int par_dofs_all=63;  // 0b0111111
 
 
-struct Particle Particle_new(){
+inline struct Particle Particle_new(){
 	struct Particle p;
 	p.flags=0;
 	p.pos=p.bboxPos=Vec3_set(NAN,NAN,NAN);
@@ -91,9 +91,10 @@ CLDEM_NAMESPACE_END();
 #ifdef __cplusplus
 	// needed for py::indexing_suite
 	namespace clDem{
-		bool operator==(const Particle& a, const Particle& b){ return memcmp(&a,&b,sizeof(Particle))==0; }	
+		inline bool operator==(const Particle& a, const Particle& b){ return memcmp(&a,&b,sizeof(Particle))==0; }	
 	};
 
+	static
 	py::object Particle_shape_get(Particle* p){
 		int shapeT=par_shapeT_get(p);
 		switch(shapeT){
@@ -102,6 +103,7 @@ CLDEM_NAMESPACE_END();
 			default:	throw std::runtime_error("Particle has shape with unknown index "+lexical_cast<string>(shapeT));
 		}
 	}
+	static
 	void Particle_shape_set(Particle *p, py::object sh){
 		if(sh==py::object()){ par_shapeT_set(p,0); return; }
 		py::extract<Sphere> sphere(sh);
@@ -111,7 +113,7 @@ CLDEM_NAMESPACE_END();
 		}
 		else throw std::runtime_error("Unknown shape object.");
 	}
-
+	static
 	void Particle_cl_h_expose(){
 		py::class_<Sphere>("Sphere").def("__init__",Sphere_new).PY_RW(Sphere,radius);
 
@@ -131,6 +133,7 @@ CLDEM_NAMESPACE_END();
 		// from-python as list
 		custom_vector_from_seq<Particle>();
 		// to-python as ParticleList proxy
+		//py::class_<std::vector<Particle>>("ParticleList").def(py::vector_indexing_suite<std::vector<Particle>>());
 		py::class_<std::vector<Particle>>("ParticleList").def(py::vector_indexing_suite<std::vector<Particle>>());
 	}
 #endif
