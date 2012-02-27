@@ -11,7 +11,7 @@ namespace clDem{
 		Scene scene;
 		cl::Buffer sceneBuf;
 
-		enum { _par=0,_con,_conFree,_pot,_potFree,_cLog,_clumps,_bboxes,_arrMax };
+		enum { _par=0,_con,_conFree,_pot,_potFree,_cJournal,_clumps,_bboxes,_arrMax };
 		struct BufSize{ cl::Buffer buf; size_t size; };
 		BufSize bufSize[_arrMax];
 
@@ -20,7 +20,7 @@ namespace clDem{
 		vector<cl_int> conFree; // free slots in con
 		vector<cl_long2> pot; // potential contacts (only the id1,id2-tuple)
 		vector<cl_int> potFree; // free slots in pot
-		vector<ContactLogItem> cLog; // logging changes in contact arrays so that the collider's internal structures can be updated accordingly
+		vector<CJournalItem> cJournal; // logging changes in contact arrays so that the collider's internal structures can be updated accordingly
 		vector<par_id_t> clumps;
 		vector<cl_float> bboxes;
 
@@ -97,7 +97,7 @@ void Simulation_hpp_expose(){
 		.PY_RWV(Simulation,conFree)
 		.PY_RWV(Simulation,pot)
 		.PY_RWV(Simulation,potFree)
-		.PY_RWV(Simulation,cLog)
+		.PY_RWV(Simulation,cJournal)
 		.PY_RWV(Simulation,bboxes)
 		.PY_RW(Simulation,maxScheduledSteps)
 		.def("run",&Simulation::run,(py::arg("nSteps"),py::arg("resetArrays")=true))

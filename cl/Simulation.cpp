@@ -34,7 +34,7 @@ namespace clDem{
 			setArray(conFree,ARR_CONFREE,this,-1);
 			setArray(pot,ARR_POT,this,no2);
 			setArray(potFree,ARR_POTFREE,this,-1);
-			setArray(cLog,ARR_CLOG,this,ContactLogItem_new());
+			setArray(cJournal,ARR_CJOURNAL,this,CJournalItem_new());
 		}
 
 		/* write actually allocated buffer sizes to scene */
@@ -42,7 +42,7 @@ namespace clDem{
 		scene.arrAlloc[ARR_CONFREE]=conFree.size();
 		scene.arrAlloc[ARR_POT]=pot.size();
 		scene.arrAlloc[ARR_POTFREE]=potFree.size();
-		scene.arrAlloc[ARR_CLOG]=cLog.size();
+		scene.arrAlloc[ARR_CJOURNAL]=cJournal.size();
 
 		// write scene
 		sceneBuf=writeBuf(scene);
@@ -54,7 +54,7 @@ namespace clDem{
 		writeVecBuf(conFree,bufSize[_conFree]);
 		writeVecBuf(pot,bufSize[_pot]);
 		writeVecBuf(potFree,bufSize[_potFree]);
-		writeVecBuf(cLog,bufSize[_cLog]);
+		writeVecBuf(cJournal,bufSize[_cJournal]);
 		// fixed-size arrays
 		writeVecBuf(clumps,bufSize[_clumps]);
 		writeVecBuf(bboxes,bufSize[_bboxes]);
@@ -69,7 +69,7 @@ namespace clDem{
 		readVecBuf(conFree,bufSize[_conFree]);
 		readVecBuf(pot,bufSize[_pot]);
 		readVecBuf(potFree,bufSize[_potFree]);
-		readVecBuf(cLog,bufSize[_cLog]);
+		readVecBuf(cJournal,bufSize[_cJournal]);
 		//readVecBuf(clumps,bufSize[_clumps]); // not changed in the simulation
 		readVecBuf(bboxes,bufSize[_bboxes]);
 		if(wait) queue.finish();
@@ -83,7 +83,7 @@ namespace clDem{
 		k.setArg(3,bufSize[_conFree].buf);
 		k.setArg(4,bufSize[_pot].buf);
 		k.setArg(5,bufSize[_potFree].buf);
-		k.setArg(6,bufSize[_cLog].buf);
+		k.setArg(6,bufSize[_cJournal].buf);
 		k.setArg(7,bufSize[_clumps].buf);
 		k.setArg(8,bufSize[_bboxes].buf);
 		return k;
@@ -196,7 +196,7 @@ namespace clDem{
 						case INT_ARR_CONFREE:
 						case INT_ARR_POT:
 						case INT_ARR_POTFREE:
-						case INT_ARR_CLOG:
+						case INT_ARR_CJOURNAL:
 							if(con.size()<SS.arrSize[ARR_CON]){
 								cerr<<"** INT_ARR_CON: "<<con.size()<<"→ "<<SS.arrSize[ARR_CON]<<"."<<endl;
 								con.resize(SS.arrSize[ARR_CON]);
@@ -213,9 +213,9 @@ namespace clDem{
 								cerr<<"** INT_ARR_POTFREE: "<<potFree.size()<<"→ "<<SS.arrSize[ARR_POTFREE]<<"."<<endl;
 								potFree.resize(SS.arrSize[ARR_POTFREE]);
 							}
-							if(cLog.size()<SS.arrSize[ARR_CLOG]){
-								cerr<<"** INT_ARR_CLOG: "<<cLog.size()<<"→ "<<SS.arrSize[ARR_CLOG]<<"."<<endl;
-								cLog.resize(SS.arrSize[ARR_CLOG]);
+							if(cJournal.size()<SS.arrSize[ARR_CJOURNAL]){
+								cerr<<"** INT_ARR_CJOURNAL: "<<cJournal.size()<<"→ "<<SS.arrSize[ARR_CJOURNAL]<<"."<<endl;
+								cJournal.resize(SS.arrSize[ARR_CJOURNAL]);
 							}
 						break;
 						default: throw std::runtime_error("Unknown destructive interrupt "+lexical_cast<string>(SS.interrupt.what));

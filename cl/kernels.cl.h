@@ -41,7 +41,7 @@ CLDEM_NAMESPACE_END()
 
 
 // all kernels take the same set of arguments, for simplicity in the host code
-#define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int *conFree, global long2* pot, global int *potFree, global struct ContactLogItem* cLog, global int* clumps, global float* bboxes
+#define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int *conFree, global long2* pot, global int *potFree, global struct CJournalItem* cJournal, global int* clumps, global float* bboxes
 
 // return when either interrupt before NAME was set in this or previous steps
 // or when interrupt NAME or after was set in previous steps.
@@ -269,9 +269,9 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	pot[cid]=(par_id2_t)(-1,-1);
 
 	// alocate indices; group together so that the interrupt handler reallocates all of them at once
-	int ixPotFree=Scene_arr_append(scene,ARR_POTFREE); // index where to write free slot
-	int ixCon=Scene_arr_free_or_append(scene,conFree,ARR_CONFREE,ARR_CON,/*shrink*/true);
-	int ixClog=Scene_arr_append(scene,ARR_CLOG);
+	int ixPotFree=Scene_arr_findNegative_or_append(scene,ARR_POTFREE,potFree); // index where to write free slot
+	int ixCon=Scene_arr_fromFreeArr_or_append(scene,conFree,ARR_CONFREE,ARR_CON,/*shrink*/true);
+	int ixCJournal=Scene_arr_append(scene,ARR_CJOURNAL);
 
 	// add to potFree
 	// not immediate, since other work-items might increase the required capacity yet more
@@ -284,10 +284,10 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	con[ixCon]=Contact_new();
 	con[ixCon].ids=ids;
 
-	// add the change to cLog
-	if(ixClog<0){ Scene_interrupt_set(scene,substep,INT_ARR_CLOG,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
-	cLog[ixClog]=ContactLogItem_new();
-	cLog[ixClog].ids=ids; cLog[ixClog].index=ixCon; cLog[ixClog].what=CLOG_POT2CON;
+	// add the change to cJournal
+	if(ixCJournal<0){ Scene_interrupt_set(scene,substep,INT_ARR_CJOURNAL,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+	cJournal[ixCJournal]=CJournalItem_new();
+	cJournal[ixCJournal].ids=ids; cJournal[ixCJournal].index=ixCon; cJournal[ixCJournal].what=CJOURNAL_POT2CON;
 };
 
 bool Bbox_overlap(global float* A, global float* B){
@@ -392,23 +392,23 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 		// append contact to conFree (with possible allocation failure)
 		// if there is still bbox overlap, append to pot
 		// delete contact from con
-		int ixConFree=Scene_arr_append(scene,ARR_CONFREE); // index where to write free slot
-		int ixClog=Scene_arr_append(scene,ARR_CLOG);
+		int ixConFree=Scene_arr_findNegative_or_append(scene,ARR_CONFREE,conFree); // index where to write free slot
+		int ixCJournal=Scene_arr_append(scene,ARR_CJOURNAL);
 		//printf("ix=%d\n",ix);
 		if(ixConFree<0){ Scene_interrupt_set(scene,substep,INT_ARR_CONFREE,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
 		conFree[ixConFree]=cid;
-		if(ixClog<0){ Scene_interrupt_set(scene,substep,INT_ARR_CLOG,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+		if(ixCJournal<0){ Scene_interrupt_set(scene,substep,INT_ARR_CJOURNAL,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
 		// if there is overlap, put back to potential contacts
 		//printf("bboxes (%v3g)--(%v3g)  (%v3g)--(%v3g)\n",(Vec3)(bboxes[6*c->ids.s0],bboxes[6*c->ids.s0+1],bboxes[6*c->ids.s0+2]),(Vec3)(bboxes[6*c->ids.s0+3],bboxes[6*c->ids.s0+4],bboxes[6*c->ids.s0+5]),(Vec3)(bboxes[6*c->ids.s1],bboxes[6*c->ids.s1+1],bboxes[6*c->ids.s1+2]),(Vec3)(bboxes[6*c->ids.s1+3],bboxes[6*c->ids.s1+4],bboxes[6*c->ids.s1+5]));
 		if(Bbox_overlap(&(bboxes[6*c->ids.s0]),&(bboxes[6*c->ids.s1]))){
-			int ixPot=Scene_arr_free_or_append(scene,potFree,ARR_POTFREE,ARR_POT,/*shrink*/true);
+			int ixPot=Scene_arr_fromFreeArr_or_append(scene,potFree,ARR_POTFREE,ARR_POT,/*shrink*/true);
 			if(ixPot<0){ Scene_interrupt_set(scene,substep,INT_ARR_POT,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
 			pot[ixPot]=c->ids;
 			// write to the log
-			cLog[ixClog].ids=c->ids; cLog[ixClog].index=ixPot; cLog[ixClog].what=CLOG_CON2POT;
+			cJournal[ixCJournal].ids=c->ids; cJournal[ixCJournal].index=ixPot; cJournal[ixCJournal].what=CJOURNAL_CON2POT;
 		} else {
 			// write to the log
-			cLog[ixClog].ids=c->ids; cLog[ixClog].index=-1; cLog[ixClog].what=CLOG_CON_DEL; 
+			cJournal[ixCJournal].ids=c->ids; cJournal[ixCJournal].index=-1; cJournal[ixCJournal].what=CJOURNAL_CON_DEL; 
 		}
 		// delete
 		*c=Contact_new(); // or just set ids=(-1,-1)?

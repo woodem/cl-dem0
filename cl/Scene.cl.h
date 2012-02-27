@@ -46,13 +46,13 @@ static constant struct EnergyProperties energyDefinitions[]={
 };
 
 // interrupt codes
-enum _interrupts{ INT_BBOXES_UPDATED=0, INT_ARR_CON, INT_ARR_CONFREE, INT_ARR_POT, INT_ARR_POTFREE, INT_ARR_CLOG, INT_NUM };
+enum _interrupts{ INT_BBOXES_UPDATED=0, INT_ARR_CON, INT_ARR_CONFREE, INT_ARR_POT, INT_ARR_POTFREE, INT_ARR_CJOURNAL, INT_NUM };
 // interrupt flags
 enum _int_flags {
 	INT_NOT_IMMEDIATE=0, INT_NOT_DESTRUCTIVE=0, // null flags, for clarity of code
 	INT_IMMEDIATE=1, INT_DESTRUCTIVE=2 };
 // dynamic arrays indices
-enum _dynarrays { ARR_CON=0, ARR_CONFREE, ARR_POT, ARR_POTFREE, ARR_CLOG, ARR_NUM };
+enum _dynarrays { ARR_CON=0, ARR_CONFREE, ARR_POT, ARR_POTFREE, ARR_CJOURNAL, ARR_NUM };
 
 #define SCENE_MAT_NUM 8
 struct Scene{
@@ -114,6 +114,26 @@ long Scene_arr_append(global struct Scene* s, int arrIx){
 	if(oldSize>=s->arrAlloc[arrIx]) return -1; // array size not sufficient
 	return oldSize;
 };
+/*
+traverse an array of ints from the beginning;
+change the first negative value atomically to 0 and return its index;
+if no negative value is found, append it to the array.
+
+This function should be used with potFree and conFree; it muse be tried
+whether it is better for the performance to write predictably at the end
+of those arrays (trading speed for size) or going through them first
+(trading size for speed)
+*/
+inline long Scene_arr_findNegative_or_append(global struct Scene* s, int arrIx, global int* arr){
+	// disable this block to prefer speed at the expense of size
+	#if 1
+		for(int i=0; i<s->arrSize[arrIx]; i++){
+			// the element is negative and gets atomically changed to 0
+			if(arr[i]<0 && atom_xchg(&arr[i],0)) return i;
+		}
+	#endif
+	return Scene_arr_append(s,arrIx);
+}
 
 /*
 return free index in array with index arrIx,
@@ -123,7 +143,7 @@ in that case, the caller is responsible for setting an appropriate interrupt.
 If *shrunk* is true and the last element of arrFree is used, the array is traversed
 backwards and shrunk so that there are no trailing invalid values.
  */
-long Scene_arr_free_or_append(global struct Scene* scene, global int* arrFree, int arrFreeIx, int arrIx, bool shrink){
+long Scene_arr_fromFreeArr_or_append(global struct Scene* scene, global int* arrFree, int arrFreeIx, int arrIx, bool shrink){
 	int ix=-1;
 	for(int i=0; i<scene->arrSize[arrFreeIx]; i++){
 		//printf("Trying arrFree[%d]=%d: ",i,arrFree[i]);

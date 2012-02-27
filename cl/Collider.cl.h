@@ -5,15 +5,15 @@
 
 CLDEM_NAMESPACE_BEGIN()
 
-// values of ContactLogItem::what
-enum _clog {
-	CLOG_POT2CON=0, // potential contact becomes real, deleted from pot and added to con[index]
-	CLOG_CON2POT,   // real contact broken & bboxes overlap; deleted from con and added to pot[index]
-	CLOG_CON_DEL    // real contact broken & no bboxes overlap; deleted from con (index is unused)
+// values of CJournalItem::what
+enum _cjournal {
+	CJOURNAL_POT2CON=0, // potential contact becomes real, deleted from pot and added to con[index]
+	CJOURNAL_CON2POT,   // real contact broken & bboxes overlap; deleted from con and added to pot[index]
+	CJOURNAL_CON_DEL    // real contact broken & no bboxes overlap; deleted from con (index is unused)
 };
 
 /* structure for logging changes in contact arrays */
-struct ContactLogItem {
+struct CJournalItem {
 	// type of change; (-1 means an invalid item which should be skipped)
 	cl_int what;
 	// new index within array, if applicable
@@ -23,13 +23,13 @@ struct ContactLogItem {
 	#ifdef __cplusplus
 		std::string __str__(){
 			if(ids.s0<0) return "{}";
-			return "{##"+lexical_cast<string>(ids.s0)+"+"+lexical_cast<string>(ids.s1)+" "+(what==CLOG_POT2CON?("→ con["+lexical_cast<string>(index)+"]"):(what==CLOG_CON2POT?("⇒ pot["+lexical_cast<string>(index)+"]"):"×"))+"}";
+			return "{##"+lexical_cast<string>(ids.s0)+"+"+lexical_cast<string>(ids.s1)+" "+(what==CJOURNAL_POT2CON?("→ con["+lexical_cast<string>(index)+"]"):(what==CJOURNAL_CON2POT?("⇒ pot["+lexical_cast<string>(index)+"]"):"×"))+"}";
 		}
 	#endif
 };
 
-static struct ContactLogItem ContactLogItem_new(){
-	struct ContactLogItem ret;
+static struct CJournalItem CJournalItem_new(){
+	struct CJournalItem ret;
 	ret.what=ret.index=ret.ids.s0=ret.ids.s1=-1;
 	return ret;
 };
@@ -39,7 +39,7 @@ CLDEM_NAMESPACE_END()
 
 // define to make collider check that changes in cLog
 // are consistent with what is actually in con & pot arrays
-#define CLOG_CHECK_CONSISTENCY
+#define CJOURNAL_CHECK_CONSISTENCY
 
 #ifdef __cplusplus
 namespace clDem{
@@ -86,12 +86,12 @@ namespace clDem{
 };
 
 static void Collider_cl_h_expose(){
-	VECTOR_SEQ_CONV(ContactLogItem);
-	py::class_<ContactLogItem>("ContactLogItem")
-		.def("__str__",&ContactLogItem::__str__)
-		.def("__repr__",&ContactLogItem::__str__)
+	VECTOR_SEQ_CONV(CJournalItem);
+	py::class_<CJournalItem>("CJournalItem")
+		.def("__str__",&CJournalItem::__str__)
+		.def("__repr__",&CJournalItem::__str__)
 	;
-	//PY_RW(ContactLogItem,what).PY_RW(ContactLogItem,index).PY_RW(ContactLogItem,index).PY
+	//PY_RW(CJournalItem,what).PY_RW(CJournalItem,index).PY_RW(CJournalItem,index).PY
 
 };
 

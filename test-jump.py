@@ -35,12 +35,12 @@ sim.scene.dt=.2*sim.pWaveDt()
 
 sim.run(1)
 zCoord,f1z=[],[]
-for i in range(0,200):
+for i in range(0,100):
 	sim.run(10,False) # do not reset arrays anymore
 	zCoord.append(sim.par[1].pos[2])
 	f1z.append(sim.par[1].force[2])
 	print '\t',[i.ids for i in sim.con]
-	print '\tconFree',sim.conFree, 'pot',sim.pot, 'potFree',sim.potFree,'cLog',sim.cLog
+	print '\tconFree',sim.conFree, 'pot',sim.pot, 'potFree',sim.potFree,'cLog',sim.cJournal
 	#print sim.saveVtk('/tmp/jump')
-	#print 'E',sim.scene.energyTotal(),sim.scene.energyError();
+	print 'E',sim.scene.energyTotal(),sim.scene.energyError();
 pylab.plot(zCoord,label='z-coord'); pylab.legend(loc='lower left'); pylab.twinx(); pylab.plot(f1z,c='red',label='F1z'); pylab.legend(); pylab.show()
