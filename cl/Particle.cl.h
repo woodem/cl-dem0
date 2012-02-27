@@ -10,6 +10,10 @@ inline struct Sphere Sphere_new(){ struct Sphere ret; ret.radius=NAN; return ret
 
 enum _shape_enum { Shape_Sphere=1, };
 
+
+struct Particle;
+static void Particle_init(global struct Particle*);
+
 // http://gpu.doxos.eu/trac/wiki/OpenCLDataStructures
 struct Particle{
 	int flags;
@@ -22,7 +26,14 @@ struct Particle{
 		struct Sphere sphere;
 	} AMD_UNION_ALIGN_BUG_WORKAROUND() shape;
 	int mutex;
+	// needed for boost::python
+	#ifdef __cplusplus
+		Particle(){ Particle_init(this); }
+	#endif
 };
+
+// inline struct Particle Particle_new(){ struct Particle p; Particle_init(&p); return p; }
+
 #define PAR_LEN_shapeT  2
 #define PAR_LEN_clumped 1
 #define PAR_LEN_stateT  2
@@ -63,26 +74,23 @@ constant int par_dofs_trans=7; // 0b0000111
 constant int par_dofs_rot=56;  // 0b0111000
 constant int par_dofs_all=63;  // 0b0111111
 
+static void Particle_init(global struct Particle* p){
+	p->flags=0;
+	p->pos=Vec3_set(NAN,NAN,NAN);
+	p->bboxPos=Vec3_set(NAN,NAN,NAN);
+	p->ori=Quat_identity();
+	p->inertia=Vec3_set(1,1,1);
+	p->mass=1.;
+	p->vel=p->angVel=Vec3_set(0,0,0);
+	p->mutex=0;
+	p->force=p->torque=Vec3_set(0,0,0);
 
-inline struct Particle Particle_new(){
-	struct Particle p;
-	p.flags=0;
-	p.pos=p.bboxPos=Vec3_set(NAN,NAN,NAN);
-	p.ori=Quat_identity();
-	p.inertia=Vec3_set(1,1,1);
-	p.mass=1.;
-	p.vel=p.angVel=Vec3_set(0,0,0);
-	p.mutex=0;
-	p.force=p.torque=Vec3_set(0,0,0);
-
-	par_shapeT_set_local(&p,0);
-	par_clumped_set_local(&p,0);
-	par_stateT_set_local(&p,0);
-	par_dofs_set_local(&p,par_dofs_all);
-	par_groups_set_local(&p,0);
-	par_matId_set_local(&p,0);
-
-	return p;
+	par_shapeT_set(p,0);
+	par_clumped_set(p,0);
+	par_stateT_set(p,0);
+	par_dofs_set(p,par_dofs_all);
+	par_groups_set(p,0);
+	par_matId_set(p,0);
 }
 
 
@@ -117,8 +125,8 @@ CLDEM_NAMESPACE_END();
 	void Particle_cl_h_expose(){
 		py::class_<Sphere>("Sphere").def("__init__",Sphere_new).PY_RW(Sphere,radius);
 
-		py::class_<Particle>("Particle").def("__init__",Particle_new)
-			.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,force).PY_RWV(Particle,torque)
+		py::class_<Particle>("Particle")//.def("__init__",py::make_constructor(Particle_new))
+			.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,force).PY_RWV(Particle,torque).PY_RWV(Particle,bboxPos)
 			.add_property("shape",Particle_shape_get,Particle_shape_set)
 			// flags
 			.def_readonly("flags",&Particle::flags)

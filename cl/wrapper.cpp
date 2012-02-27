@@ -1,4 +1,5 @@
 #include"Simulation.hpp"
+#include"Collider.cl.h"
 
 #include<eigen3/Eigen/Core>
 #include<eigen3/Eigen/Geometry>
@@ -78,4 +79,5 @@ BOOST_PYTHON_MODULE(_clDem){
 	Contact_cl_h_expose();
 	Scene_cl_h_expose();
 	Simulation_hpp_expose();
+	Collider_cl_h_expose();
 }

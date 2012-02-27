@@ -3,6 +3,7 @@
 #include"Particle.cl.h"
 #include"Contact.cl.h"
 #include"Scene.cl.h"
+#include"Collider.cl.h"
 
 namespace clDem{
 
@@ -10,7 +11,7 @@ namespace clDem{
 		Scene scene;
 		cl::Buffer sceneBuf;
 
-		enum { _par=0,_con,_conFree,_pot,_potFree,_clumps,_bboxes,_arrMax };
+		enum { _par=0,_con,_conFree,_pot,_potFree,_cLog,_clumps,_bboxes,_arrMax };
 		struct BufSize{ cl::Buffer buf; size_t size; };
 		BufSize bufSize[_arrMax];
 
@@ -19,6 +20,7 @@ namespace clDem{
 		vector<cl_int> conFree; // free slots in con
 		vector<cl_long2> pot; // potential contacts (only the id1,id2-tuple)
 		vector<cl_int> potFree; // free slots in pot
+		vector<ContactLogItem> cLog; // logging changes in contact arrays so that the collider's internal structures can be updated accordingly
 		vector<par_id_t> clumps;
 		vector<cl_float> bboxes;
 
@@ -26,6 +28,7 @@ namespace clDem{
 			scene=Scene_new();
 			maxScheduledSteps=-1;
 			initCl(pNum,dNum,opts);
+			cpuCollider=make_shared<CpuCollider>();
 		}
 
 		cl::Platform platform;
@@ -33,6 +36,8 @@ namespace clDem{
 		cl::Context context;
 		cl::CommandQueue queue;
 		cl::Program program;
+
+		shared_ptr<CpuCollider> cpuCollider;
 
 		#if 0
 			struct Buffers{
@@ -57,8 +62,10 @@ namespace clDem{
 			bs.size=obj.size();
 		}
 		template<typename T> void readVecBuf(std::vector<T>& obj, BufSize& bs){
+			//cerr<<typeid(T).name()<<"["<<bs.size;
 			obj.resize(bs.size); // in case size was changed meanwhile
 			queue.enqueueReadBuffer(bs.buf,CL_FALSE,0,sizeof(T)*obj.size(),obj.data());
+			//cerr<<"]";
 		}
 
 		void writeBufs(bool setArrays, bool wait=true);
@@ -83,13 +90,14 @@ namespace clDem{
 
 static
 void Simulation_hpp_expose(){
-	py::class_<Simulation>("Simulation",py::init<int,int,string>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1,py::arg("opts")="")))
+	py::class_<clDem::Simulation>("Simulation",py::init<int,int,string>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1,py::arg("opts")="")))
 		.PY_RW(Simulation,scene)
 		.PY_RW(Simulation,par)
 		.PY_RW(Simulation,con)
-		.PY_RWV(Simulation,pot)
 		.PY_RWV(Simulation,conFree)
+		.PY_RWV(Simulation,pot)
 		.PY_RWV(Simulation,potFree)
+		.PY_RWV(Simulation,cLog)
 		.PY_RWV(Simulation,bboxes)
 		.PY_RW(Simulation,maxScheduledSteps)
 		.def("run",&Simulation::run,(py::arg("nSteps"),py::arg("resetArrays")=true))

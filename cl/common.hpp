@@ -3,19 +3,27 @@
 #define __CL_ENABLE_EXCEPTIONS
 #include"cl.hpp"
 
+#include<boost/shared_ptr.hpp>
+#include<boost/make_shared.hpp>
+using boost::shared_ptr;
+using boost::make_shared;
+
 #include<boost/python.hpp>
 namespace py=boost::python;
 
 #define PY_RWV(clss,attr) add_property(BOOST_PP_STRINGIZE(attr),/*read access*/py::make_getter(&clss::attr,py::return_value_policy<py::return_by_value>()),/*write access*/make_setter(&clss::attr,py::return_value_policy<py::return_by_value>()))
 #define PY_RW(clss,attr) def_readwrite(BOOST_PP_STRINGIZE(attr),&clss::attr)
 
-// workaround for Contact alignment issues
-// http://thread.gmane.org/gmane.comp.python.c++/15639
-namespace boost {
-	namespace align { struct __attribute__((__aligned__(128))) a128 {};}
-	template<> class type_with_alignment<128> { public: typedef align::a128 type; };
-	// namespace detail{ BOOST_TT_AUX_BOOL_TRAIT_IMPL_SPEC1(is_pod,::boost::align::a128,true) }
-};
+#if BOOST_VERSION<=14900
+	// workaround for Contact alignment issues http://thread.gmane.org/gmane.comp.python.c++/15639
+	// it was fixed in the SVN http://svn.boost.org/svn/boost/trunk/boost/type_traits/type_with_alignment.hpp
+	// before boost 1.50
+	namespace boost {
+		namespace align { struct __attribute__((__aligned__(128))) a128 {};}
+		template<> class type_with_alignment<128> { public: typedef align::a128 type; };
+		// namespace detail{ BOOST_TT_AUX_BOOL_TRAIT_IMPL_SPEC1(is_pod,::boost::align::a128,true) }
+	};
+#endif
 
 /* self-stolen from Yade */
 
@@ -63,4 +71,5 @@ struct custom_vector_from_seq{
 using std::vector;
 using boost::lexical_cast;
 using std::string;
-
+using std::cerr;
+using std::endl;

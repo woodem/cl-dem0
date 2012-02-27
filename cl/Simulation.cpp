@@ -34,6 +34,7 @@ namespace clDem{
 			setArray(conFree,ARR_CONFREE,this,-1);
 			setArray(pot,ARR_POT,this,no2);
 			setArray(potFree,ARR_POTFREE,this,-1);
+			setArray(cLog,ARR_CLOG,this,ContactLogItem_new());
 		}
 
 		/* write actually allocated buffer sizes to scene */
@@ -41,7 +42,7 @@ namespace clDem{
 		scene.arrAlloc[ARR_CONFREE]=conFree.size();
 		scene.arrAlloc[ARR_POT]=pot.size();
 		scene.arrAlloc[ARR_POTFREE]=potFree.size();
-		scene.arrAlloc[ARR_CON]=con.size();
+		scene.arrAlloc[ARR_CLOG]=cLog.size();
 
 		// write scene
 		sceneBuf=writeBuf(scene);
@@ -53,6 +54,7 @@ namespace clDem{
 		writeVecBuf(conFree,bufSize[_conFree]);
 		writeVecBuf(pot,bufSize[_pot]);
 		writeVecBuf(potFree,bufSize[_potFree]);
+		writeVecBuf(cLog,bufSize[_cLog]);
 		// fixed-size arrays
 		writeVecBuf(clumps,bufSize[_clumps]);
 		writeVecBuf(bboxes,bufSize[_bboxes]);
@@ -67,6 +69,7 @@ namespace clDem{
 		readVecBuf(conFree,bufSize[_conFree]);
 		readVecBuf(pot,bufSize[_pot]);
 		readVecBuf(potFree,bufSize[_potFree]);
+		readVecBuf(cLog,bufSize[_cLog]);
 		//readVecBuf(clumps,bufSize[_clumps]); // not changed in the simulation
 		readVecBuf(bboxes,bufSize[_bboxes]);
 		if(wait) queue.finish();
@@ -80,8 +83,9 @@ namespace clDem{
 		k.setArg(3,bufSize[_conFree].buf);
 		k.setArg(4,bufSize[_pot].buf);
 		k.setArg(5,bufSize[_potFree].buf);
-		k.setArg(6,bufSize[_clumps].buf);
-		k.setArg(7,bufSize[_bboxes].buf);
+		k.setArg(6,bufSize[_cLog].buf);
+		k.setArg(7,bufSize[_clumps].buf);
+		k.setArg(8,bufSize[_bboxes].buf);
 		return k;
 	}
 
@@ -162,38 +166,58 @@ namespace clDem{
 				LOOP_DBG(cerr<<"Interrupt: "<<(SS.interrupt.flags&INT_DESTRUCTIVE?"destructive":"non-destructive")<<", step="<<SS.interrupt.step<<", substep="<<SS.interrupt.substep<<", what="<<SS.interrupt.what);
 				// non-destructive interrupts: handle them and queue remaining kernels
 				if(!(SS.interrupt.flags&INT_DESTRUCTIVE)){
-					switch(SS.interrupt.what){
+					/*
+					non-destructive interrupt is a new rollback point; therefore:
+					1. read _all_ buffers back from the device
+					2. operate on *scene* rather than the temporary *SS* (since *scene* is what writeBufs writes)
+					*/
+					readBufs(/*wait*/true);
+					switch(scene.interrupt.what){
 						case INT_BBOXES_UPDATED:
-							cerr<<"** handling updated bboxes --"<<endl;
+							cerr<<"** bboxes updated, calling CpuCollider::run --"<<endl;
+							cpuCollider->run(this);
 							break;
 						default: throw std::runtime_error("Unknown non-destructive interrupt "+lexical_cast<string>(SS.interrupt.what));
 					}
-					//
-					substepStart=SS.interrupt.substep+1;
-					SS.step=SS.interrupt.step;
-					nSteps=goalStep-SS.interrupt.step;
+					substepStart=scene.interrupt.substep+1;
+					scene.step=scene.interrupt.step;
+					nSteps=goalStep-scene.interrupt.step;
 					// write scene without interrupts back to the device
-					Scene_interrupt_reset(&SS);
-					LOOP_DBG("SS.step="<<SS.step);
-					sceneBuf=writeBuf(SS,/*wait*/true); 
+					Scene_interrupt_reset(&scene);
+					LOOP_DBG("scene.step="<<scene.step);
+					//sceneBuf=writeBuf(SS,/*wait*/true); 
+					writeBufs(/*setArrays*/true,/*wait*/false);
 				} else { // destructive: rollback device state to what we sent last time, re-run everything since then
 					switch(SS.interrupt.what){
+						/* the interrupt is set just for one, but more may need attention;
+						actually the information on which array to reallocate is discarded
+						*/
 						case INT_ARR_CON:
-							cerr<<"** INT_ARR_CON: "<<con.size()<<"→ "<<SS.arrSize[ARR_CON]<<"."<<endl;
-							con.resize(SS.arrSize[ARR_CON]);
-							break;
 						case INT_ARR_CONFREE:
-							cerr<<"** INT_ARR_CONFREE: "<<conFree.size()<<"→ "<<SS.arrSize[ARR_CONFREE]<<"."<<endl;
-							conFree.resize(SS.arrSize[ARR_CONFREE]);
-							break;
 						case INT_ARR_POT:
-							cerr<<"** INT_ARR_POT: "<<pot.size()<<"→ "<<SS.arrSize[ARR_POT]<<"."<<endl;
-							pot.resize(SS.arrSize[ARR_POT]);
-							break;
 						case INT_ARR_POTFREE:
-							cerr<<"** INT_ARR_POTFREE: "<<potFree.size()<<"→ "<<SS.arrSize[ARR_POTFREE]<<"."<<endl;
-							potFree.resize(SS.arrSize[ARR_POTFREE]);
-							break;
+						case INT_ARR_CLOG:
+							if(con.size()<SS.arrSize[ARR_CON]){
+								cerr<<"** INT_ARR_CON: "<<con.size()<<"→ "<<SS.arrSize[ARR_CON]<<"."<<endl;
+								con.resize(SS.arrSize[ARR_CON]);
+							}
+							if(conFree.size()<SS.arrSize[ARR_CONFREE]){
+								cerr<<"** INT_ARR_CONFREE: "<<conFree.size()<<"→ "<<SS.arrSize[ARR_CONFREE]<<"."<<endl;
+								conFree.resize(SS.arrSize[ARR_CONFREE]);
+							}
+							if(pot.size()<SS.arrSize[ARR_POT]){
+								cerr<<"** INT_ARR_POT: "<<pot.size()<<"→ "<<SS.arrSize[ARR_POT]<<"."<<endl;
+								pot.resize(SS.arrSize[ARR_POT]);
+							}
+							if(potFree.size()<SS.arrSize[ARR_POTFREE]){
+								cerr<<"** INT_ARR_POTFREE: "<<potFree.size()<<"→ "<<SS.arrSize[ARR_POTFREE]<<"."<<endl;
+								potFree.resize(SS.arrSize[ARR_POTFREE]);
+							}
+							if(cLog.size()<SS.arrSize[ARR_CLOG]){
+								cerr<<"** INT_ARR_CLOG: "<<cLog.size()<<"→ "<<SS.arrSize[ARR_CLOG]<<"."<<endl;
+								cLog.resize(SS.arrSize[ARR_CLOG]);
+							}
+						break;
 						default: throw std::runtime_error("Unknown destructive interrupt "+lexical_cast<string>(SS.interrupt.what));
 					}
 					if(rollbacks>=rollbacksMax) throw std::runtime_error("Too many rollbacks ("+lexical_cast<string>(rollbacks)+"), giving up.");

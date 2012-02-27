@@ -46,13 +46,13 @@ static constant struct EnergyProperties energyDefinitions[]={
 };
 
 // interrupt codes
-enum _interrupts{ INT_BBOXES_UPDATED=0, INT_ARR_CON, INT_ARR_CONFREE, INT_ARR_POT, INT_ARR_POTFREE, INT_NUM };
+enum _interrupts{ INT_BBOXES_UPDATED=0, INT_ARR_CON, INT_ARR_CONFREE, INT_ARR_POT, INT_ARR_POTFREE, INT_ARR_CLOG, INT_NUM };
 // interrupt flags
 enum _int_flags {
 	INT_NOT_IMMEDIATE=0, INT_NOT_DESTRUCTIVE=0, // null flags, for clarity of code
 	INT_IMMEDIATE=1, INT_DESTRUCTIVE=2 };
 // dynamic arrays indices
-enum _dynarrays { ARR_CON=0, ARR_CONFREE, ARR_POT, ARR_POTFREE, ARR_NUM };
+enum _dynarrays { ARR_CON=0, ARR_CONFREE, ARR_POT, ARR_POTFREE, ARR_CLOG, ARR_NUM };
 
 #define SCENE_MAT_NUM 8
 struct Scene{

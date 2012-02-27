@@ -4,6 +4,7 @@
 
 #include"Particle.cl.h"
 #include"Contact.cl.h"
+#include"Collider.cl.h"
 #include"Scene.cl.h"
 
 CLDEM_NAMESPACE_BEGIN()
@@ -40,7 +41,7 @@ CLDEM_NAMESPACE_END()
 
 
 // all kernels take the same set of arguments, for simplicity in the host code
-#define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int *conFree, global long2* pot, global int *potFree, global int* clumps, global float* bboxes
+#define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int *conFree, global long2* pot, global int *potFree, global struct ContactLogItem* cLog, global int* clumps, global float* bboxes
 
 // return when either interrupt before NAME was set in this or previous steps
 // or when interrupt NAME or after was set in previous steps.
@@ -169,7 +170,12 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 
 	// is this safe for multi-threaded? is the new value always going to be written?
 	// it is not read until in the next kernel
-	if(scene->verletDist>=0 && Vec3_sqNorm(p->pos-p->bboxPos)>pown(scene->verletDist,2)) scene->updateBboxes=true;
+	#if 0
+		printf("#%ld boxPos=%g\n",get_global_id(0),p->bboxPos.s0);
+		printf("#%ld boxPos=%g\n",get_global_id(0),p->bboxPos.s1);
+		printf("#%ld boxPos=%g\n",get_global_id(0),p->bboxPos.s2);
+	#endif
+	if(scene->verletDist>=0 && (Vec3_sqNorm(p->pos-p->bboxPos)>pown(scene->verletDist,2) || isnan(p->bboxPos.s0))) scene->updateBboxes=true;
 }
 
 /** This kernel runs only when INT_OUT_OF_BBOX is set **/
@@ -258,18 +264,30 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	printf("Creating ##%ld+%ld\n",ids.s0,ids.s1);
 	// the contact is real, create it
 	// this will be moved to a separate function later
+
+	// delete from pot
 	pot[cid]=(par_id2_t)(-1,-1);
-	// append one item to potFree
-	int ix=Scene_arr_append(scene,ARR_POTFREE); // index where to write free slot
-	//printf("potFree[%d]\n",ix);
+
+	// alocate indices; group together so that the interrupt handler reallocates all of them at once
+	int ixPotFree=Scene_arr_append(scene,ARR_POTFREE); // index where to write free slot
+	int ixCon=Scene_arr_free_or_append(scene,conFree,ARR_CONFREE,ARR_CON,/*shrink*/true);
+	int ixClog=Scene_arr_append(scene,ARR_CLOG);
+
+	// add to potFree
 	// not immediate, since other work-items might increase the required capacity yet more
-	if(ix<0){ Scene_interrupt_set(scene,substep,INT_ARR_POTFREE,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
-	potFree[ix]=cid;
-	ix=Scene_arr_free_or_append(scene,conFree,ARR_CONFREE,ARR_CON,/*shrink*/true);
-	if(ix<0){ Scene_interrupt_set(scene,substep,INT_ARR_CON,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+	if(ixPotFree<0){ Scene_interrupt_set(scene,substep,INT_ARR_POTFREE,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+	potFree[ixPotFree]=cid;
+	
+	// add to con
+	if(ixCon<0){ Scene_interrupt_set(scene,substep,INT_ARR_CON,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
 	// actually create the new contact here
-	con[ix]=Contact_new();
-	con[ix].ids=ids;
+	con[ixCon]=Contact_new();
+	con[ixCon].ids=ids;
+
+	// add the change to cLog
+	if(ixClog<0){ Scene_interrupt_set(scene,substep,INT_ARR_CLOG,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+	cLog[ixClog]=ContactLogItem_new();
+	cLog[ixClog].ids=ids; cLog[ixClog].index=ixCon; cLog[ixClog].what=CLOG_POT2CON;
 };
 
 bool Bbox_overlap(global float* A, global float* B){
@@ -374,19 +392,23 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 		// append contact to conFree (with possible allocation failure)
 		// if there is still bbox overlap, append to pot
 		// delete contact from con
-		int ix=Scene_arr_append(scene,ARR_CONFREE); // index where to write free slot
+		int ixConFree=Scene_arr_append(scene,ARR_CONFREE); // index where to write free slot
+		int ixClog=Scene_arr_append(scene,ARR_CLOG);
 		//printf("ix=%d\n",ix);
-		if(ix<0){ Scene_interrupt_set(scene,substep,INT_ARR_CONFREE,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
-		conFree[ix]=cid;
+		if(ixConFree<0){ Scene_interrupt_set(scene,substep,INT_ARR_CONFREE,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+		conFree[ixConFree]=cid;
+		if(ixClog<0){ Scene_interrupt_set(scene,substep,INT_ARR_CLOG,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
 		// if there is overlap, put back to potential contacts
 		//printf("bboxes (%v3g)--(%v3g)  (%v3g)--(%v3g)\n",(Vec3)(bboxes[6*c->ids.s0],bboxes[6*c->ids.s0+1],bboxes[6*c->ids.s0+2]),(Vec3)(bboxes[6*c->ids.s0+3],bboxes[6*c->ids.s0+4],bboxes[6*c->ids.s0+5]),(Vec3)(bboxes[6*c->ids.s1],bboxes[6*c->ids.s1+1],bboxes[6*c->ids.s1+2]),(Vec3)(bboxes[6*c->ids.s1+3],bboxes[6*c->ids.s1+4],bboxes[6*c->ids.s1+5]));
 		if(Bbox_overlap(&(bboxes[6*c->ids.s0]),&(bboxes[6*c->ids.s1]))){
-			ix=Scene_arr_free_or_append(scene,potFree,ARR_POTFREE,ARR_POT,/*shrink*/true);
-			if(ix<0){
-				printf("Allocation of pot[] failed: size %d, allocated %d\n",scene->arrSize[ARR_POT],scene->arrAlloc[ARR_POT]);
-				Scene_interrupt_set(scene,substep,INT_ARR_POT,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return;
-			}
-			pot[ix]=c->ids;
+			int ixPot=Scene_arr_free_or_append(scene,potFree,ARR_POTFREE,ARR_POT,/*shrink*/true);
+			if(ixPot<0){ Scene_interrupt_set(scene,substep,INT_ARR_POT,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+			pot[ixPot]=c->ids;
+			// write to the log
+			cLog[ixClog].ids=c->ids; cLog[ixClog].index=ixPot; cLog[ixClog].what=CLOG_CON2POT;
+		} else {
+			// write to the log
+			cLog[ixClog].ids=c->ids; cLog[ixClog].index=-1; cLog[ixClog].what=CLOG_CON_DEL; 
 		}
 		// delete
 		*c=Contact_new(); // or just set ids=(-1,-1)?
