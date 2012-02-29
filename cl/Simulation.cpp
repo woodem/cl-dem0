@@ -23,20 +23,18 @@ namespace clDem{
 	void setArray(vector<T>& arr, int arrIx, Simulation* s, const T& noItem){
 		if(arr.empty()){ arr.push_back(noItem); s->scene.arrAlloc[arrIx]=1; s->scene.arrSize[arrIx]=0; }
 	};
-	void Simulation::writeBufs(bool setArrays, bool wait){
-		if(setArrays){
+	void Simulation::writeBufs(bool wait){
+		// make sure arrays are not empty
 			clumps.resize(1); // not yet working
 			bboxes.resize(par.size()*6,NAN);
 			if(par.empty()) throw std::runtime_error("There must be some particles (now "+lexical_cast<string>(par.size())+").");
-			cl_long2 no2; no2.s0=-1; no2.s1=-1;
+			cl_long2 no2={-1,-1};
 			setArray(con,ARR_CON,this,Contact_new());
-			cerr<<"@ conFree: "<<scene.arrSize[ARR_CONFREE]<<" / "<<scene.arrAlloc[ARR_CONFREE]<<endl;
 			setArray(conFree,ARR_CONFREE,this,-1);
-			cerr<<"@ conFree: "<<scene.arrSize[ARR_CONFREE]<<" / "<<scene.arrAlloc[ARR_CONFREE]<<endl;
 			setArray(pot,ARR_POT,this,no2);
 			setArray(potFree,ARR_POTFREE,this,-1);
 			setArray(cJournal,ARR_CJOURNAL,this,CJournalItem_new());
-		}
+		//
 
 		/* write actually allocated buffer sizes to scene */
 		scene.arrAlloc[ARR_CON]=con.size();
@@ -135,9 +133,9 @@ namespace clDem{
 	};
 	//#define LOOP_DBG(a) std::cerr<<a<<std::endl;
 	#define LOOP_DBG(a)
-	void Simulation::run(int _nSteps, bool resetArrays){
+	void Simulation::run(int _nSteps){
 		// create buffers, enqueue copies to the device
-		writeBufs(/*setArrays*/ resetArrays);
+		writeBufs(/*wait*/true);
 		long goalStep=scene.step+_nSteps;
 		/*
 		TODO: create loop which will handle interrupted runs here
@@ -187,7 +185,7 @@ namespace clDem{
 					Scene_interrupt_reset(&scene);
 					LOOP_DBG("scene.step="<<scene.step);
 					//sceneBuf=writeBuf(SS,/*wait*/true); 
-					writeBufs(/*setArrays*/false,/*wait*/false);
+					writeBufs(/*wait*/false);
 				} else { // destructive: rollback device state to what we sent last time, re-run everything since then
 					switch(SS.interrupt.what){
 						/* the interrupt is set just for one, but more may need attention;
@@ -227,7 +225,7 @@ namespace clDem{
 					//
 					nSteps=goalStep-scene.step;
 					// substepStart=0; // use substep which was run the last time --
-					writeBufs(/*setArrays*/false);
+					writeBufs(/*wait*/false);
 				}
 			} else {
 				if(SS.step==goalStep) break;

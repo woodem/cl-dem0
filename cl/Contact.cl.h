@@ -74,10 +74,9 @@ static struct Contact Contact_new(){
 CLDEM_NAMESPACE_END();
 
 #ifdef __cplusplus
+namespace clDem{
 	// needed for py::indexing_suite
-	namespace clDem{
-		inline bool operator==(const Contact& a, const Contact& b){ return memcmp(&a,&b,sizeof(Contact))==0; }	
-	};
+	inline bool operator==(const Contact& a, const Contact& b){ return memcmp(&a,&b,sizeof(Contact))==0; }	
 
 	static
 	py::object Contact_geom_get(Contact* c){
@@ -118,28 +117,34 @@ CLDEM_NAMESPACE_END();
 	template<int N>
 	par_id_t Contact_id_get(Contact *c){ return (N==0?c->ids.s0:c->ids.s1); }
 	
-	static
-	void Contact_cl_h_expose(){
-		py::class_<L1Geom>("L1Geom").def("__init__",L1Geom_new).PY_RW(L1Geom,uN);
-		py::class_<L6Geom>("L6Geom").def("__init__",L6Geom_new).PY_RWV(L6Geom,uN).PY_RWV(L6Geom,vel).PY_RWV(L6Geom,angVel);
-		py::class_<NormPhys>("NormPhys").def("__init__",NormPhys_new).PY_RW(NormPhys,kN);
+	#ifndef YADE_CLDEM
+		static
+		void Contact_cl_h_expose(){
+			py::class_<L1Geom>("L1Geom").def("__init__",L1Geom_new).PY_RW(L1Geom,uN);
+			py::class_<L6Geom>("L6Geom").def("__init__",L6Geom_new).PY_RWV(L6Geom,uN).PY_RWV(L6Geom,vel).PY_RWV(L6Geom,angVel);
+			py::class_<NormPhys>("NormPhys").def("__init__",NormPhys_new).PY_RW(NormPhys,kN);
 
-		py::class_<Contact>("Contact").def("__init__",Contact_new)
-			.PY_RWV(Contact,ids).PY_RWV(Contact,pos).PY_RWV(Contact,ori).PY_RWV(Contact,force).PY_RWV(Contact,torque)
-			.def_readonly("flags",&Contact::flags)
-			.add_property("geom",Contact_geom_get,Contact_geom_set)
-			.add_property("phys",Contact_phys_get,Contact_phys_set)
-			.add_property("shapesT",con_shapesT_get)
-			.add_property("geomT",con_geomT_get)
-			.add_property("physT",con_physT_get)
-			.add_property("id1",Contact_id_get<0>)
-			.add_property("id2",Contact_id_get<1>)
-		;
-		// to-python from [...]
-		custom_vector_from_seq<Contact>();
-		// from-python as ContactList proxy
-		py::class_<std::vector<Contact>>("ContactList").def(py::vector_indexing_suite<std::vector<Contact>>());
-	};
+			py::class_<Contact>("Contact").def("__init__",Contact_new)
+				.PY_RWV(Contact,ids).PY_RWV(Contact,pos).PY_RWV(Contact,ori).PY_RWV(Contact,force).PY_RWV(Contact,torque)
+				.def_readonly("flags",&Contact::flags)
+				.add_property("geom",Contact_geom_get,Contact_geom_set)
+				.add_property("phys",Contact_phys_get,Contact_phys_set)
+				.add_property("shapesT",con_shapesT_get)
+				.add_property("geomT",con_geomT_get)
+				.add_property("physT",con_physT_get)
+				.add_property("id1",Contact_id_get<0>)
+				.add_property("id2",Contact_id_get<1>)
+			;
+			// to-python from [...]
+			custom_vector_from_seq<Contact>();
+			// from-python as ContactList proxy
+			py::class_<std::vector<Contact>>("ContactList").def(py::vector_indexing_suite<std::vector<Contact>>());
+		};
+	#endif
+
+};
+
+
 #endif
 
 

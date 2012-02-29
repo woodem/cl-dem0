@@ -8,7 +8,7 @@ CLDEM_NAMESPACE_BEGIN();
 struct Sphere{	Real radius; };
 inline struct Sphere Sphere_new(){ struct Sphere ret; ret.radius=NAN; return ret; }
 
-enum _shape_enum { Shape_Sphere=1, };
+enum _shape_enum { Shape_None=0, Shape_Sphere, };
 
 
 struct Particle;
@@ -97,10 +97,9 @@ static void Particle_init(global struct Particle* p){
 CLDEM_NAMESPACE_END();
 
 #ifdef __cplusplus
+namespace clDem{
 	// needed for py::indexing_suite
-	namespace clDem{
 		inline bool operator==(const Particle& a, const Particle& b){ return memcmp(&a,&b,sizeof(Particle))==0; }	
-	};
 
 	static
 	py::object Particle_shape_get(Particle* p){
@@ -121,29 +120,35 @@ CLDEM_NAMESPACE_END();
 		}
 		else throw std::runtime_error("Unknown shape object.");
 	}
-	static
-	void Particle_cl_h_expose(){
-		py::class_<Sphere>("Sphere").def("__init__",Sphere_new).PY_RW(Sphere,radius);
+	// not needed inside yade
+	#ifndef YADE_CLDEM
+		static
+		void Particle_cl_h_expose(){
+			py::class_<Sphere>("Sphere").def("__init__",Sphere_new).PY_RW(Sphere,radius);
 
-		py::class_<Particle>("Particle")//.def("__init__",py::make_constructor(Particle_new))
-			.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,force).PY_RWV(Particle,torque).PY_RWV(Particle,bboxPos)
-			.add_property("shape",Particle_shape_get,Particle_shape_set)
-			// flags
-			.def_readonly("flags",&Particle::flags)
-			.add_property("shapeT",par_shapeT_get)
-			.add_property("clumped",par_clumped_get,par_clumped_set)
-			.add_property("stateT",par_stateT_get)
-			.add_property("dofs",par_dofs_get,par_dofs_set)
-			.add_property("groups",par_groups_get,par_groups_set)
-			.add_property("matId",par_matId_get,par_matId_set)
-		;
+			py::class_<Particle>("Particle")//.def("__init__",py::make_constructor(Particle_new))
+				.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,force).PY_RWV(Particle,torque).PY_RWV(Particle,bboxPos)
+				.add_property("shape",Particle_shape_get,Particle_shape_set)
+				// flags
+				.def_readonly("flags",&Particle::flags)
+				.add_property("shapeT",par_shapeT_get)
+				.add_property("clumped",par_clumped_get,par_clumped_set)
+				.add_property("stateT",par_stateT_get)
+				.add_property("dofs",par_dofs_get,par_dofs_set)
+				.add_property("groups",par_groups_get,par_groups_set)
+				.add_property("matId",par_matId_get,par_matId_set)
+			;
 
-		// from-python as list
-		custom_vector_from_seq<Particle>();
-		// to-python as ParticleList proxy
-		//py::class_<std::vector<Particle>>("ParticleList").def(py::vector_indexing_suite<std::vector<Particle>>());
-		py::class_<std::vector<Particle>>("ParticleList").def(py::vector_indexing_suite<std::vector<Particle>>());
-	}
+			// from-python as list
+			custom_vector_from_seq<Particle>();
+			// to-python as ParticleList proxy
+			//py::class_<std::vector<Particle>>("ParticleList").def(py::vector_indexing_suite<std::vector<Particle>>());
+			py::class_<std::vector<Particle>>("ParticleList").def(py::vector_indexing_suite<std::vector<Particle>>());
+		}
+	#endif
+
+};
+
 #endif
 
 #endif

@@ -30,6 +30,11 @@
 	#else
 		#define printf(...)
 	#endif
+	//#ifdef cl_khr_global_int32_base_atomics
+		#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
+	//#else
+	//	#error cl_khr_global_int32_base_atomics extension not supported
+	//#endif
 #else
 	#define global
 	#define constant const
@@ -39,11 +44,6 @@
 	template<typename T> T atom_inc(T* p){ T old=*p; (*p)++; return old; }
 #endif
 
-//#ifdef cl_khr_global_int32_base_atomics
-	#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
-//#else
-//	#error cl_khr_global_int32_base_atomics extension not supported
-//#endif
 
 #ifdef __cplusplus
 	#include<Eigen/Core>

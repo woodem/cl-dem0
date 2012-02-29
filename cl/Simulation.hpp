@@ -5,8 +5,12 @@
 #include"Scene.cl.h"
 #include"Collider.cl.h"
 
-namespace clDem{
+// if included from yade
+#ifdef YADE_VTK
+	#define CLDEM_VTK
+#endif
 
+namespace clDem{
 	struct Simulation{
 		Scene scene;
 		cl::Buffer sceneBuf;
@@ -68,7 +72,7 @@ namespace clDem{
 			//cerr<<"]";
 		}
 
-		void writeBufs(bool setArrays, bool wait=true);
+		void writeBufs(bool wait=true);
 		void readBufs(bool wait=true);
 		void runKernels(int nSteps, int substepStart=0);
 		cl::Kernel makeKernel(const char* name);
@@ -77,7 +81,7 @@ namespace clDem{
 
 
 		void initCl(int pNum, int dNum, const string& opts);
-		void run(int nSteps, bool resetArrays);
+		void run(int nSteps);
 		Real pWaveDt();
 		py::tuple getBbox(par_id_t id);
 		py::list saveVtk(string prefix, bool compress=true, bool ascii=false);
@@ -90,7 +94,7 @@ namespace clDem{
 
 static
 void Simulation_hpp_expose(){
-	py::class_<clDem::Simulation>("Simulation",py::init<int,int,string>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1,py::arg("opts")="")))
+	py::class_<clDem::Simulation,shared_ptr<clDem::Simulation>>("Simulation",py::init<int,int,string>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1,py::arg("opts")="")))
 		.PY_RW(Simulation,scene)
 		.PY_RW(Simulation,par)
 		.PY_RW(Simulation,con)

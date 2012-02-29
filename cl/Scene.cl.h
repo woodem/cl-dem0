@@ -160,6 +160,8 @@ if no free slot is found, try to enlarge arr; returns -1 if the reallocation fai
 in that case, the caller is responsible for setting an appropriate interrupt.
 If *shrunk* is true and the last element of arrFree is used, the array is traversed
 backwards and shrunk so that there are no trailing invalid values.
+
+NB: the shrinking logic does not work well with concurrent access and is disabled now
  */
 inline long Scene_arr_fromFreeArr_or_append(global struct Scene* scene, global int* arrFree, int arrFreeIx, int arrIx, bool shrink){
 	int ix=-1;
@@ -168,14 +170,16 @@ inline long Scene_arr_fromFreeArr_or_append(global struct Scene* scene, global i
 		ix=atom_xchg(&(arrFree[i]),-1); // read old value and reset to -1
 		//printf("%d\n",ix);
 		if(ix>=0){
-			// in case we just grabbed the last element in arrFree, shrink its size (go to the first valid item)
-			if(shrink && ix==scene->arrSize[arrFreeIx]-1){
-				int last; for(last=ix-1; arrFree[last]<0 && last>=0; last--);
-				if(last<ix-1){
-					printf("Array shrunk %d → %d\n",scene->arrSize[arrFreeIx],last+1);
-					scene->arrSize[arrFreeIx]=last+1;
+			#if 0
+				// in case we just grabbed the last element in arrFree, shrink its size (go to the first valid item)
+				if(shrink && ix==scene->arrSize[arrFreeIx]-1){
+					int last; for(last=ix-1; arrFree[last]<0 && last>=0; last--);
+					if(last<ix-1){
+						printf("Array shrunk %d → %d\n",scene->arrSize[arrFreeIx],last+1);
+						scene->arrSize[arrFreeIx]=last+1;
+					}
 				}
-			}
+			#endif
 			return ix;
 		}
 	}
@@ -230,6 +234,7 @@ inline void Scene_energyReset(global struct Scene* s){
 CLDEM_NAMESPACE_END();
 
 #ifdef __cplusplus
+namespace clDem{
 	static
 	py::object Material_mat_get(const Material* m){
 		int matT=mat_matT_get(m);
@@ -288,22 +293,25 @@ CLDEM_NAMESPACE_END();
 		ret["immediate"]=(bool)(s->interrupt.flags&INT_IMMEDIATE);
 		return ret;
 	}
-	static
-	void Scene_cl_h_expose(){
-		VECTOR_SEQ_CONV(Material);
-		py::class_<ElastMat>("ElastMat").def("__init__",ElastMat_new).PY_RW(ElastMat,density).PY_RW(ElastMat,young);
+	#ifndef YADE_CLDEM
+		static
+		void Scene_cl_h_expose(){
+			VECTOR_SEQ_CONV(Material);
+			py::class_<ElastMat>("ElastMat").def("__init__",ElastMat_new).PY_RW(ElastMat,density).PY_RW(ElastMat,young);
 
-		py::class_<Scene>("Scene")
-			.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,step).PY_RWV(Scene,gravity).PY_RW(Scene,damping).PY_RW(Scene,verletDist)
-			.add_property("arr",Scene_arr_get)
-			.add_property("materials",Scene_mats_get,Scene_mats_set)
-			.add_property("energy",Scene_energy_get) //,py::arg("omitZero")=true)
-			.add_property("interrupt",Scene_interrupt_get)
-			.def("energyReset",Scene_energyReset)
-			.def("energyTotal",Scene_energyTotal)
-			.def("energyError",Scene_energyError)
-		;
-	}
+			py::class_<Scene>("Scene")
+				.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,step).PY_RWV(Scene,gravity).PY_RW(Scene,damping).PY_RW(Scene,verletDist)
+				.add_property("arr",Scene_arr_get)
+				.add_property("materials",Scene_mats_get,Scene_mats_set)
+				.add_property("energy",Scene_energy_get) //,py::arg("omitZero")=true)
+				.add_property("interrupt",Scene_interrupt_get)
+				.def("energyReset",Scene_energyReset)
+				.def("energyTotal",Scene_energyTotal)
+				.def("energyError",Scene_energyError)
+			;
+		}
+	#endif
+};
 #endif
 
 #endif
