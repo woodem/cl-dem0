@@ -25,7 +25,7 @@ namespace clDem{
 		vector<cl_float> bboxes;
 
 		Simulation(int pNum=-1,int dNum=-1, const string& opts=""){
-			scene=Scene_new();
+			scene=Scene();
 			maxScheduledSteps=-1;
 			initCl(pNum,dNum,opts);
 			cpuCollider=make_shared<CpuCollider>();

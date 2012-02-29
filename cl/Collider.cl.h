@@ -51,7 +51,7 @@ namespace clDem{
 			ConLoc(size_t _ix=-1, bool _isReal=false): ix(_ix), isReal(_isReal) {};
 			//ConLoc(const ConLoc& b){ *this=b; }
 			//void operator=(const ConLoc& b){ ix=b.ix; isReal=b.isReal; } 
-			size_t ix; bool isReal;
+			long ix; bool isReal;
 		};
 		typedef std::vector<std::map<par_id_t,ConLoc>> cMapT;
 		cMapT cMap;
@@ -74,7 +74,11 @@ namespace clDem{
 		bool bboxOverlap(par_id_t id1, par_id_t id2) const;
 
 		void clearSimPot();
-		size_t addPot(par_id_t id1, par_id_t id2);
+		void addPot(par_id_t id1, par_id_t id2, bool useFree /*use potFree array */);
+		void delPot(par_id_t id1, par_id_t id2, ConLoc* cl);
+
+		std::string ids2str(par_id_t id1, par_id_t id2){ return "##"+lexical_cast<string>(id1)+"+"+lexical_cast<string>(id2); }
+		std::string ids2str(const cl_long2& ii){ return ids2str(ii.s0,ii.s1); }
 
 		void run(Simulation*);
 		Simulation* sim;
@@ -82,6 +86,11 @@ namespace clDem{
 
 		void initialStep();
 		void incrementalStep();
+
+		void replayJournal();
+		void checkConsistency();
+		void updateBounds();
+		void insertionSort();
 	};
 };
 

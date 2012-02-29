@@ -54,6 +54,7 @@ enum _int_flags {
 // dynamic arrays indices
 enum _dynarrays { ARR_CON=0, ARR_CONFREE, ARR_POT, ARR_POTFREE, ARR_CJOURNAL, ARR_NUM };
 
+
 #define SCENE_MAT_NUM 8
 struct Scene{
 	Real t;
@@ -74,42 +75,59 @@ struct Scene{
 	int energyMutex[SCENE_ENERGY_NUM]; // use mutexes until atomics work for floats
 	cl_int arrSize[ARR_NUM];  // must be ints since we need atomics for them
 	cl_int arrAlloc[ARR_NUM];
+	#ifdef __cplusplus
+		Scene();
+	#endif
 };
 
 
 #ifdef __cplusplus
+
 inline void Scene_interrupt_reset(struct Scene* s){
 	s->interrupt.step=-1;
 	s->interrupt.substep=s->interrupt.what=s->interrupt.flags=0;
 }
-inline struct Scene Scene_new(){
-	struct Scene s;
-	s.t=0;
-	s.dt=1e-8;
-	s.step=-1;
-	s.gravity=Vec3_set(0,0,0);
-	s.damping=0.;
-	s.verletDist=-1.; // no interrupts due to spheres getting out of bboxes
-	Scene_interrupt_reset(&s);
-	s.updateBboxes=false;
+
+inline void Scene_init(struct Scene* s){
+	s->t=0;
+	s->dt=1e-8;
+	s->step=-1;
+	s->gravity=Vec3_set(0,0,0);
+	s->damping=0.;
+	s->verletDist=-1.; // no interrupts due to spheres getting out of bboxes
+	Scene_interrupt_reset(s);
+	s->updateBboxes=false;
 	// no materials
-	for(int i=0; i<SCENE_MAT_NUM; i++) mat_matT_set_local(&s.materials[i],0); 
+	for(int i=0; i<SCENE_MAT_NUM; i++) mat_matT_set_local(&s->materials[i],0); 
 	//Scene_energyReset(&s): but the pointer is not global, copy here instead
-	for(int i=0; i<SCENE_ENERGY_NUM; i++){ s.energy[i]=0; s.energyMutex[i]=0; }
+	for(int i=0; i<SCENE_ENERGY_NUM; i++){ s->energy[i]=0; s->energyMutex[i]=0; }
 	// no allocated arrays
-	for(int i=0; i<ARR_NUM; i++) s.arrAlloc[i]=s.arrSize[i]=0;
-	return s;
+	for(int i=0; i<ARR_NUM; i++) s->arrAlloc[i]=s->arrSize[i]=0;
 }
+inline Scene::Scene(){ Scene_init(this); }
+
+static py::dict Scene_arr_get(struct Scene* s){
+	py::dict ret;
+	ret["con"]=py::make_tuple(s->arrSize[ARR_CON],s->arrAlloc[ARR_CON]);
+	ret["conFree"]=py::make_tuple(s->arrSize[ARR_CONFREE],s->arrAlloc[ARR_CONFREE]);
+	ret["pot"]=py::make_tuple(s->arrSize[ARR_POT],s->arrAlloc[ARR_POT]);
+	ret["potFree"]=py::make_tuple(s->arrSize[ARR_POTFREE],s->arrAlloc[ARR_POTFREE]);
+	ret["cJournal"]=py::make_tuple(s->arrSize[ARR_CJOURNAL],s->arrAlloc[ARR_CJOURNAL]);
+	return ret;
+}
+
+
 #endif
 
 
-#ifdef __OPENCL_VERSION__
+//#ifdef __OPENCL_VERSION__
+
 /* try to allocate an additional item in array with index arrIx;
 if the array would overflow, returns -1, but the arrSize will
 nevertheless be increased (the arrSize thus designates required array
 size). The new item should be written at the index returned, unless
 negative. */
-long Scene_arr_append(global struct Scene* s, int arrIx){
+inline long Scene_arr_append(global struct Scene* s, int arrIx){
 	long oldSize=atom_inc(&(s->arrSize[arrIx]));
 	if(oldSize>=s->arrAlloc[arrIx]) return -1; // array size not sufficient
 	return oldSize;
@@ -129,7 +147,7 @@ inline long Scene_arr_findNegative_or_append(global struct Scene* s, int arrIx, 
 	#if 1
 		for(int i=0; i<s->arrSize[arrIx]; i++){
 			// the element is negative and gets atomically changed to 0
-			if(arr[i]<0 && atom_xchg(&arr[i],0)) return i;
+			if(arr[i]<0 && atom_xchg(&arr[i],0)<0) return i;
 		}
 	#endif
 	return Scene_arr_append(s,arrIx);
@@ -143,7 +161,7 @@ in that case, the caller is responsible for setting an appropriate interrupt.
 If *shrunk* is true and the last element of arrFree is used, the array is traversed
 backwards and shrunk so that there are no trailing invalid values.
  */
-long Scene_arr_fromFreeArr_or_append(global struct Scene* scene, global int* arrFree, int arrFreeIx, int arrIx, bool shrink){
+inline long Scene_arr_fromFreeArr_or_append(global struct Scene* scene, global int* arrFree, int arrFreeIx, int arrIx, bool shrink){
 	int ix=-1;
 	for(int i=0; i<scene->arrSize[arrFreeIx]; i++){
 		//printf("Trying arrFree[%d]=%d: ",i,arrFree[i]);
@@ -153,8 +171,10 @@ long Scene_arr_fromFreeArr_or_append(global struct Scene* scene, global int* arr
 			// in case we just grabbed the last element in arrFree, shrink its size (go to the first valid item)
 			if(shrink && ix==scene->arrSize[arrFreeIx]-1){
 				int last; for(last=ix-1; arrFree[last]<0 && last>=0; last--);
-				//printf("Array shrunk to %d\n",last+1);
-				scene->arrSize[arrFreeIx]=last+1;
+				if(last<ix-1){
+					printf("Array shrunk %d → %d\n",scene->arrSize[arrFreeIx],last+1);
+					scene->arrSize[arrFreeIx]=last+1;
+				}
 			}
 			return ix;
 		}
@@ -167,6 +187,7 @@ long Scene_arr_fromFreeArr_or_append(global struct Scene* scene, global int* arr
 	return ix;
 }
 
+#ifdef __OPENCL_VERSION__
 bool Scene_interrupt_set(global struct Scene* s, int substep, int what, int flags){
 	if(atom_cmpxchg(&s->interrupt.step,-1,s->step)==-1){
 		// enabling this printf makes some bboxes NaN?!!!
@@ -272,8 +293,9 @@ CLDEM_NAMESPACE_END();
 		VECTOR_SEQ_CONV(Material);
 		py::class_<ElastMat>("ElastMat").def("__init__",ElastMat_new).PY_RW(ElastMat,density).PY_RW(ElastMat,young);
 
-		py::class_<Scene>("Scene").def("__init__",Scene_new)
+		py::class_<Scene>("Scene")
 			.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,step).PY_RWV(Scene,gravity).PY_RW(Scene,damping).PY_RW(Scene,verletDist)
+			.add_property("arr",Scene_arr_get)
 			.add_property("materials",Scene_mats_get,Scene_mats_set)
 			.add_property("energy",Scene_energy_get) //,py::arg("omitZero")=true)
 			.add_property("interrupt",Scene_interrupt_get)

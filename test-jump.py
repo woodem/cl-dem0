@@ -20,7 +20,7 @@ sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION -DTRACK_ENERGY")
 sim.scene.materials=[clDem.ElastMat(young=1e4,density=1e4)]
 sim.scene.gravity=(0,0,-10)
 sim.scene.damping=.1
-sim.scene.verletDist=2*r # collision detection in this case
+sim.scene.verletDist=.05*r # collision detection in this case
 sim.maxScheduledSteps=5
 
 sim.par.append(clDem.mkSphere((0,0,0),.005,sim,matId=0,fixed=True))
@@ -35,12 +35,14 @@ sim.scene.dt=.2*sim.pWaveDt()
 
 sim.run(1)
 zCoord,f1z=[],[]
-for i in range(0,100):
-	sim.run(10,False) # do not reset arrays anymore
+for i in range(0,1000):
+	sim.run(1,False) # do not reset arrays anymore
 	zCoord.append(sim.par[1].pos[2])
 	f1z.append(sim.par[1].force[2])
-	print '\t',[i.ids for i in sim.con]
-	print '\tconFree',sim.conFree, 'pot',sim.pot, 'potFree',sim.potFree,'cLog',sim.cJournal
+	#print sim.scene.arr
+	#print '\t',[i.ids for i in sim.con]
+	#print '\tdist',abs(sim.par[1].pos[2]-sim.par[0].pos[2])-2*r
+	#print '\tcon',[(c.id1,c.id1) for c in sim.con if c.id1>=0],'conFree',sim.conFree, 'pot',sim.pot, 'potFree',sim.potFree,'cLog',sim.cJournal
 	#print sim.saveVtk('/tmp/jump')
-	print 'E',sim.scene.energyTotal(),sim.scene.energyError();
+	#print 'E',sim.scene.energyTotal(),sim.scene.energyError();
 pylab.plot(zCoord,label='z-coord'); pylab.legend(loc='lower left'); pylab.twinx(); pylab.plot(f1z,c='red',label='F1z'); pylab.legend(); pylab.show()

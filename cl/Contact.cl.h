@@ -115,6 +115,8 @@ CLDEM_NAMESPACE_END();
 		if(np.check()){ c->phys.normPhys=np(); con_geomT_set(c,Phys_NormPhys); }
 		else throw std::runtime_error("Unknown geom object.");
 	}
+	template<int N>
+	par_id_t Contact_id_get(Contact *c){ return (N==0?c->ids.s0:c->ids.s1); }
 	
 	static
 	void Contact_cl_h_expose(){
@@ -130,6 +132,8 @@ CLDEM_NAMESPACE_END();
 			.add_property("shapesT",con_shapesT_get)
 			.add_property("geomT",con_geomT_get)
 			.add_property("physT",con_physT_get)
+			.add_property("id1",Contact_id_get<0>)
+			.add_property("id2",Contact_id_get<1>)
 		;
 		// to-python from [...]
 		custom_vector_from_seq<Contact>();

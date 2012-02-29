@@ -73,3 +73,5 @@ using boost::lexical_cast;
 using std::string;
 using std::cerr;
 using std::endl;
+using std::max;
+using std::min;

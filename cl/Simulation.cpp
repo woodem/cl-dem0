@@ -22,7 +22,6 @@ namespace clDem{
 	template<typename T>
 	void setArray(vector<T>& arr, int arrIx, Simulation* s, const T& noItem){
 		if(arr.empty()){ arr.push_back(noItem); s->scene.arrAlloc[arrIx]=1; s->scene.arrSize[arrIx]=0; }
-		else{ s->scene.arrAlloc[arrIx]=s->scene.arrSize[arrIx]=arr.size(); }
 	};
 	void Simulation::writeBufs(bool setArrays, bool wait){
 		if(setArrays){
@@ -31,7 +30,9 @@ namespace clDem{
 			if(par.empty()) throw std::runtime_error("There must be some particles (now "+lexical_cast<string>(par.size())+").");
 			cl_long2 no2; no2.s0=-1; no2.s1=-1;
 			setArray(con,ARR_CON,this,Contact_new());
+			cerr<<"@ conFree: "<<scene.arrSize[ARR_CONFREE]<<" / "<<scene.arrAlloc[ARR_CONFREE]<<endl;
 			setArray(conFree,ARR_CONFREE,this,-1);
+			cerr<<"@ conFree: "<<scene.arrSize[ARR_CONFREE]<<" / "<<scene.arrAlloc[ARR_CONFREE]<<endl;
 			setArray(pot,ARR_POT,this,no2);
 			setArray(potFree,ARR_POTFREE,this,-1);
 			setArray(cJournal,ARR_CJOURNAL,this,CJournalItem_new());
@@ -146,7 +147,7 @@ namespace clDem{
 		int nSteps(_nSteps);
 		int substepStart=0;
 		int rollbacks=0;
-		const int rollbacksMax=10;
+		const int rollbacksMax=1000;
 		bool allOk;
 		Scene SS;
 		const int maxLoop=-1;
@@ -186,7 +187,7 @@ namespace clDem{
 					Scene_interrupt_reset(&scene);
 					LOOP_DBG("scene.step="<<scene.step);
 					//sceneBuf=writeBuf(SS,/*wait*/true); 
-					writeBufs(/*setArrays*/true,/*wait*/false);
+					writeBufs(/*setArrays*/false,/*wait*/false);
 				} else { // destructive: rollback device state to what we sent last time, re-run everything since then
 					switch(SS.interrupt.what){
 						/* the interrupt is set just for one, but more may need attention;
@@ -222,10 +223,10 @@ namespace clDem{
 					}
 					if(rollbacks>=rollbacksMax) throw std::runtime_error("Too many rollbacks ("+lexical_cast<string>(rollbacks)+"), giving up.");
 					rollbacks++;
-					cerr<<"Rollback no. "<<rollbacks<<" to step "<<scene.step<<endl;
+					cerr<<"Rollback no. "<<rollbacks<<" to step "<<scene.step<<" / "<<substepStart<<endl;
 					//
 					nSteps=goalStep-scene.step;
-					substepStart=0;
+					// substepStart=0; // use substep which was run the last time --
 					writeBufs(/*setArrays*/false);
 				}
 			} else {
@@ -257,6 +258,7 @@ namespace clDem{
 					case KARGS_POT: queue.enqueueNDRangeKernel(k,cl::NDRange(0),cl::NDRange(bufSize[_pot].size),cl::NDRange(1)); break;
 					default: throw std::runtime_error("Invalid KernelInfo.argsType value "+lexical_cast<string>(ki.argsType));
 				}
+				LOOP_DBG("{"<<ki.name<<"}");
 			}
 		}
 	};

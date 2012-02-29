@@ -33,6 +33,10 @@
 #else
 	#define global
 	#define constant const
+	// some funcs for source-level compat
+	// NB: there are not real atomics, and are safe only in single-threaded!
+	template<typename T> T atom_xchg(T* p, const T& val){ T old=*p; *p=val; return old; }
+	template<typename T> T atom_inc(T* p){ T old=*p; (*p)++; return old; }
 #endif
 
 //#ifdef cl_khr_global_int32_base_atomics
