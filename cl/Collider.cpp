@@ -78,13 +78,48 @@ void CpuCollider::delPot(par_id_t id1, par_id_t id2, ConLoc* cl){
 		sim->potFree.push_back(cl->ix); 
 		scene->arrSize[ARR_POTFREE]=sim->potFree.size();
 	} else {
-		assert(sim->potFree[ixPotFree]==0); // changed by the allocator to avoid races, but is really unused
+		// 0 is when the slot was one which was previously unused (to avoid races)
+		// -1 is 
+		assert(sim->potFree[ixPotFree]==0 || sim->potFree[ixPotFree]==-1); 
 		sim->potFree[ixPotFree]=cl->ix;
 	}
 	// remove from cMap
 	remove(id1,id2);
 	//
 	COLL_DBG("* del pot ##"<<id1<<"+"<<id2<<" @ pot["<<cl->ix<<"] ("<<scene->arrSize[ARR_POT]<<"/"<<scene->arrAlloc[ARR_POT]<<")");
+}
+
+/* compact free arrays: move valid items to the beginning and
+trailing -1's to the end
+*/
+void CpuCollider::compactFree(){
+	for(int what=0; what<2; what++){
+		std::vector<cl_int>& FF(what==0?sim->potFree:sim->conFree);
+		#if 0
+			cerr<<"$$$$$$ "<<what<<": ";
+			for(int a: FF) cerr<<a<<" ";
+			cerr<<endl;
+		#endif
+		long lastUsed=-1;
+		for(long i=0; i<(long)FF.size(); i++){
+			if(FF[i]<0) continue;
+			// FF[i]>=0 now
+			if(lastUsed<(i-1)){ // this item can be moved towards the front
+				lastUsed++;
+				FF[lastUsed]=FF[i];
+				FF[i]=-1;
+			} else { // if it cannot be moved, this is the last used index
+				lastUsed=i;
+			}
+		}
+		// set used array size
+		sim->scene.arrSize[what==0?ARR_POTFREE:ARR_CONFREE]=lastUsed+1;
+		#if 0
+			cerr<<"@@@@@@ "<<what<<"["<<lastUsed+1<<"]: ";
+			for(int a: FF) cerr<<a<<" ";
+			cerr<<endl;
+		#endif
+	}
 }
 
 
@@ -157,6 +192,7 @@ void CpuCollider::incrementalStep(){
 	checkConsistency();
 	updateBounds();
 	insertionSort();
+	compactFree();
 }
 
 /* reply all contact changes and update cMap accordingly */
@@ -184,7 +220,7 @@ void CpuCollider::replayJournal(){
 				break;
 			default: abort();
 		}
-		J=CJournalItem_new();
+		J=CJournalItem();
 	}
 	scene->arrSize[ARR_CJOURNAL]=0;
 };

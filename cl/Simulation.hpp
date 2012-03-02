@@ -72,6 +72,9 @@ namespace clDem{
 			//cerr<<"]";
 		}
 
+		size_t arrNewSize(const Scene&, int arrIx);
+
+
 		void writeBufs(bool wait=true);
 		void readBufs(bool wait=true);
 		void runKernels(int nSteps, int substepStart=0);

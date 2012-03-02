@@ -18,7 +18,13 @@ static struct NormPhys NormPhys_new(){ struct NormPhys ret; ret.kN=NAN; return r
 
 enum _phys_enum { Phys_NormPhys=1, };
 
+struct Contact;
+static void Contact_init(global struct Contact *c);
+
 struct Contact{
+	#ifdef __cplusplus
+		Contact(){ Contact_init(this); }
+	#endif
 	int flags;
 	par_id2_t ids;
 	Vec3 pos;
@@ -54,16 +60,14 @@ CONTACT_FLAG_GET_SET(shapesT);
 CONTACT_FLAG_GET_SET(geomT);
 CONTACT_FLAG_GET_SET(physT);
 
-static struct Contact Contact_new(){
-	struct Contact c;
-	c.ids.s0=-1; c.ids.s1=-1;
-	c.pos=Vec3_set(0,0,0);
-	c.ori=Mat3_identity();
-	c.force=c.torque=Vec3_set(0,0,0);
-	con_shapesT_set_local(&c,0);
-	con_geomT_set_local(&c,0);
-	con_physT_set_local(&c,0);
-	return c;
+static void Contact_init(global struct Contact *c){
+	c->ids.s0=-1; c->ids.s1=-1;
+	c->pos=Vec3_set(0,0,0);
+	c->ori=Mat3_identity();
+	c->force=c->torque=Vec3_set(0,0,0);
+	con_shapesT_set(c,0);
+	con_geomT_set(c,0);
+	con_physT_set(c,0);
 }
 
 // must be macros so that they can be used as switch cases
@@ -124,7 +128,7 @@ namespace clDem{
 			py::class_<L6Geom>("L6Geom").def("__init__",L6Geom_new).PY_RWV(L6Geom,uN).PY_RWV(L6Geom,vel).PY_RWV(L6Geom,angVel);
 			py::class_<NormPhys>("NormPhys").def("__init__",NormPhys_new).PY_RW(NormPhys,kN);
 
-			py::class_<Contact>("Contact").def("__init__",Contact_new)
+			py::class_<Contact>("Contact")
 				.PY_RWV(Contact,ids).PY_RWV(Contact,pos).PY_RWV(Contact,ori).PY_RWV(Contact,force).PY_RWV(Contact,torque)
 				.def_readonly("flags",&Contact::flags)
 				.add_property("geom",Contact_geom_get,Contact_geom_set)

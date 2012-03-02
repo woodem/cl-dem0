@@ -54,6 +54,19 @@ enum _int_flags {
 // dynamic arrays indices
 enum _dynarrays { ARR_CON=0, ARR_CONFREE, ARR_POT, ARR_POTFREE, ARR_CJOURNAL, ARR_NUM };
 
+#ifdef __cplusplus
+static string arrName(int arrIx){
+	switch(arrIx){
+		case ARR_CON: return "CON";
+		case ARR_CONFREE: return "CONFREE";
+		case ARR_POT: return "POT";
+		case ARR_POTFREE: return "POTFREE";
+		case ARR_CJOURNAL: return "CJOURNAL";
+		default: throw std::logic_error("arrName("+lexical_cast<string>(arrIx)+") not known.");
+	};
+};
+#endif
+
 
 #define SCENE_MAT_NUM 8
 struct Scene{
@@ -119,6 +132,11 @@ static py::dict Scene_arr_get(struct Scene* s){
 
 #endif
 
+/*
+FIXME FIXME FIXME:
+The following routines might fail if array size is changed by one thread and another
+thread in-between claims the fewly-free element in there. Must be solved soon. Also explains why simulations run better on CPUs, where the likelihood of parallel clashes is much smaller.
+*/
 
 //#ifdef __OPENCL_VERSION__
 
@@ -126,11 +144,28 @@ static py::dict Scene_arr_get(struct Scene* s){
 if the array would overflow, returns -1, but the arrSize will
 nevertheless be increased (the arrSize thus designates required array
 size). The new item should be written at the index returned, unless
-negative. */
+negative.
+*/
 inline long Scene_arr_append(global struct Scene* s, int arrIx){
 	long oldSize=atom_inc(&(s->arrSize[arrIx]));
 	if(oldSize>=s->arrAlloc[arrIx]) return -1; // array size not sufficient
 	return oldSize;
+};
+
+// in addition, try to claim the new element by flipping it to 0 
+inline long Scene_arr_append_claim(global struct Scene* s, int arrIx, global int* arr){
+	while(true){
+		long oldSize=atom_inc(&(s->arrSize[arrIx]));
+		if(/* new size*/oldSize+1 > s->arrAlloc[arrIx]) return -1; // array size not sufficient
+		// flip the element so that it is not unclaimed;
+		// if that fails, another thread was faster and we need to try again
+		//printf("Trying %d at %ld\n",arr[oldSize],oldSize);
+		if(atom_cmpxchg(&arr[oldSize],-1,0)==-1){
+			//printf("Returning: %d at %ld\n",arr[oldSize],oldSize);
+			// for(int i=0; i<s->arrAlloc[arrIx]; i++){ printf("->%d %d: %d\n",oldSize,i,arr[arrIx]); }
+			return oldSize;
+		}
+	}
 };
 /*
 traverse an array of ints from the beginning;
@@ -147,10 +182,18 @@ inline long Scene_arr_findNegative_or_append(global struct Scene* s, int arrIx, 
 	#if 1
 		for(int i=0; i<s->arrSize[arrIx]; i++){
 			// the element is negative and gets atomically changed to 0
-			if(arr[i]<0 && atom_xchg(&arr[i],0)<0) return i;
+			#ifdef __cplusplus
+				//cerr<<"At element "<<i<<"="<<arr[i]<<endl;
+			#endif
+			if(arr[i]<0 && atom_xchg(&arr[i],0)<0){
+				#ifdef __cplusplus
+					//cerr<<"Changed to 0, returning "<<i<<endl;
+				#endif
+				return i;
+			}
 		}
 	#endif
-	return Scene_arr_append(s,arrIx);
+	return Scene_arr_append_claim(s,arrIx,arr);
 }
 
 /*
@@ -203,7 +246,7 @@ bool Scene_interrupt_set(global struct Scene* s, int substep, int what, int flag
 	}
 	// this is in itself OK, since another interrupt was set already;
 	// use for debugging now
-	printf("%d/%d: Interrupt %d not set!\n",(int)s->step,substep,what);
+	//printf("%d/%d: Interrupt %d not set!\n",(int)s->step,substep,what);
 	return false;
 }
 

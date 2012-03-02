@@ -23,17 +23,40 @@ namespace clDem{
 	void setArray(vector<T>& arr, int arrIx, Simulation* s, const T& noItem){
 		if(arr.empty()){ arr.push_back(noItem); s->scene.arrAlloc[arrIx]=1; s->scene.arrSize[arrIx]=0; }
 	};
+
+	// operates on a copy of Scene
+	size_t Simulation::arrNewSize(const Scene& SS, int arrIx){
+		size_t currSize=SS.arrAlloc[arrIx], reqSize=SS.arrSize[arrIx];
+		if(currSize>=reqSize){
+			cerr<<"?? arrIx="<<arrIx<<", currSize="<<currSize<<", reqSize="<<reqSize<<endl;
+			return currSize;
+		}
+		size_t ret=max(currSize,max((size_t)(1.5*reqSize),reqSize+100));
+		#if 1
+			cerr<<"** ARR_";
+			switch(arrIx){
+				case ARR_CON: cerr<<"CON"; break;
+				case ARR_CONFREE: cerr<<"CONFREE"; break;
+				case ARR_POT: cerr<<"POT"; break;
+				case ARR_POTFREE: cerr<<"CONFREE"; break;
+				case ARR_CJOURNAL: cerr<<"CJOURNAL"; break;
+				default: throw std::logic_error("Simulation.arrNewSize received invalid arrIx parameter "+lexical_cast<string>(arrIx));
+			}
+			cerr<<": "<<currSize<<"→ "<<ret<<" (≥"<<reqSize<<")."<<endl;
+		#endif
+		return ret;
+	}
 	void Simulation::writeBufs(bool wait){
 		// make sure arrays are not empty
 			clumps.resize(1); // not yet working
 			bboxes.resize(par.size()*6,NAN);
 			if(par.empty()) throw std::runtime_error("There must be some particles (now "+lexical_cast<string>(par.size())+").");
 			cl_long2 no2={-1,-1};
-			setArray(con,ARR_CON,this,Contact_new());
+			setArray(con,ARR_CON,this,Contact());
 			setArray(conFree,ARR_CONFREE,this,-1);
 			setArray(pot,ARR_POT,this,no2);
 			setArray(potFree,ARR_POTFREE,this,-1);
-			setArray(cJournal,ARR_CJOURNAL,this,CJournalItem_new());
+			setArray(cJournal,ARR_CJOURNAL,this,CJournalItem());
 		//
 
 		/* write actually allocated buffer sizes to scene */
@@ -173,7 +196,7 @@ namespace clDem{
 					readBufs(/*wait*/true);
 					switch(scene.interrupt.what){
 						case INT_BBOXES_UPDATED:
-							cerr<<"** bboxes updated, calling CpuCollider::run --"<<endl;
+							cerr<<"[C]";
 							cpuCollider->run(this);
 							break;
 						default: throw std::runtime_error("Unknown non-destructive interrupt "+lexical_cast<string>(SS.interrupt.what));
@@ -187,34 +210,36 @@ namespace clDem{
 					//sceneBuf=writeBuf(SS,/*wait*/true); 
 					writeBufs(/*wait*/false);
 				} else { // destructive: rollback device state to what we sent last time, re-run everything since then
+					const float enlargeFactor=2.;
 					switch(SS.interrupt.what){
 						/* the interrupt is set just for one, but more may need attention;
 						actually the information on which array to reallocate is discarded
 						*/
-						case INT_ARR_CON:
+						case INT_ARR_CON: 
 						case INT_ARR_CONFREE:
 						case INT_ARR_POT:
 						case INT_ARR_POTFREE:
 						case INT_ARR_CJOURNAL:
-							if(con.size()<SS.arrSize[ARR_CON]){
-								cerr<<"** INT_ARR_CON: "<<con.size()<<"→ "<<SS.arrSize[ARR_CON]<<"."<<endl;
-								con.resize(SS.arrSize[ARR_CON]);
+							assert(SS.arrAlloc[ARR_CON]==con.size());
+							assert(SS.arrAlloc[ARR_CONFREE]==conFree.size());
+							assert(SS.arrAlloc[ARR_POT]==pot.size());
+							assert(SS.arrAlloc[ARR_POTFREE]==potFree.size());
+							assert(SS.arrAlloc[ARR_CJOURNAL]==cJournal.size());
+							if(SS.arrAlloc[ARR_CON]<SS.arrSize[ARR_CON]){
+								con.resize(arrNewSize(SS,ARR_CON));
 							}
-							if(conFree.size()<SS.arrSize[ARR_CONFREE]){
-								cerr<<"** INT_ARR_CONFREE: "<<conFree.size()<<"→ "<<SS.arrSize[ARR_CONFREE]<<"."<<endl;
-								conFree.resize(SS.arrSize[ARR_CONFREE]);
+							if(SS.arrAlloc[ARR_CONFREE]<SS.arrSize[ARR_CONFREE]){
+								conFree.resize(arrNewSize(SS,ARR_CONFREE),-1);
 							}
-							if(pot.size()<SS.arrSize[ARR_POT]){
-								cerr<<"** INT_ARR_POT: "<<pot.size()<<"→ "<<SS.arrSize[ARR_POT]<<"."<<endl;
-								pot.resize(SS.arrSize[ARR_POT]);
+							if(SS.arrAlloc[ARR_POT]<SS.arrSize[ARR_POT]){
+								cl_long2 no2={-1,-1};
+								pot.resize(arrNewSize(SS,ARR_POT),no2);
 							}
-							if(potFree.size()<SS.arrSize[ARR_POTFREE]){
-								cerr<<"** INT_ARR_POTFREE: "<<potFree.size()<<"→ "<<SS.arrSize[ARR_POTFREE]<<"."<<endl;
-								potFree.resize(SS.arrSize[ARR_POTFREE]);
+							if(SS.arrAlloc[ARR_POTFREE]<SS.arrSize[ARR_POTFREE]){
+								potFree.resize(arrNewSize(SS,ARR_POTFREE),-1);
 							}
-							if(cJournal.size()<SS.arrSize[ARR_CJOURNAL]){
-								cerr<<"** INT_ARR_CJOURNAL: "<<cJournal.size()<<"→ "<<SS.arrSize[ARR_CJOURNAL]<<"."<<endl;
-								cJournal.resize(SS.arrSize[ARR_CJOURNAL]);
+							if(SS.arrAlloc[ARR_CJOURNAL]<SS.arrSize[ARR_CJOURNAL]){
+								cJournal.resize(arrNewSize(SS,ARR_CJOURNAL));
 							}
 						break;
 						default: throw std::runtime_error("Unknown destructive interrupt "+lexical_cast<string>(SS.interrupt.what));

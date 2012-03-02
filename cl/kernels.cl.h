@@ -65,6 +65,9 @@ CLDEM_NAMESPACE_END()
 	#define ADD_ENERGY(scene,name,E)
 #endif
 
+// if defined, printf's show when contacts are created/deleted
+//#define CON_LOG
+
 void Scene_energyAdd(global struct Scene* scene, int energyIndex, Real E){
 	//atomic_add(&(scene->energy[energyIndex]),(float)E);
 	global int* mutex=&(scene->energyMutex[energyIndex]);
@@ -261,7 +264,9 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 		}
 		default: /* error? */ return;
 	};
-	printf("Creating ##%ld+%ld\n",ids.s0,ids.s1);
+	#ifdef CON_LOG
+		printf("Creating ##%ld+%ld\n",ids.s0,ids.s1);
+	#endif
 	// the contact is real, create it
 	// this will be moved to a separate function later
 
@@ -272,21 +277,24 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	int ixPotFree=Scene_arr_findNegative_or_append(scene,ARR_POTFREE,potFree); // index where to write free slot
 	int ixCon=Scene_arr_fromFreeArr_or_append(scene,conFree,ARR_CONFREE,ARR_CON,/*shrink*/true);
 	int ixCJournal=Scene_arr_append(scene,ARR_CJOURNAL);
+	// printf("Indices %d %d %d\n",ixPotFree,ixCon,ixCJournal);
 
 	// add to potFree
 	// not immediate, since other work-items might increase the required capacity yet more
-	if(ixPotFree<0){ Scene_interrupt_set(scene,substep,INT_ARR_POTFREE,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+	if(ixPotFree<0){
+		//printf("!! potfree insufficient, size=%d, alloc=%d\n",scene->arrSize[ARR_POTFREE],scene->arrAlloc[ARR_POTFREE]);
+		Scene_interrupt_set(scene,substep,INT_ARR_POTFREE,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
 	potFree[ixPotFree]=cid;
 	
 	// add to con
 	if(ixCon<0){ Scene_interrupt_set(scene,substep,INT_ARR_CON,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
 	// actually create the new contact here
-	con[ixCon]=Contact_new();
+	Contact_init(&(con[ixCon]));
 	con[ixCon].ids=ids;
 
 	// add the change to cJournal
 	if(ixCJournal<0){ Scene_interrupt_set(scene,substep,INT_ARR_CJOURNAL,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
-	cJournal[ixCJournal]=CJournalItem_new();
+	CJournalItem_init(&(cJournal[ixCJournal]));
 	cJournal[ixCJournal].ids=ids; cJournal[ixCJournal].index=ixCon; cJournal[ixCJournal].what=CJOURNAL_POT2CON;
 };
 
@@ -388,7 +396,9 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	}
 
 	if(contactBroken){
-		printf("Breaking ##%ld+%ld\n",c->ids.s0,c->ids.s1);
+		#ifdef CON_LOG
+			printf("Breaking ##%ld+%ld\n",c->ids.s0,c->ids.s1);
+		#endif
 		// append contact to conFree (with possible allocation failure)
 		// if there is still bbox overlap, append to pot
 		// delete contact from con
@@ -411,7 +421,7 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 			cJournal[ixCJournal].ids=c->ids; cJournal[ixCJournal].index=-1; cJournal[ixCJournal].what=CJOURNAL_CON_DEL; 
 		}
 		// delete
-		*c=Contact_new(); // or just set ids=(-1,-1)?
+		Contact_init(c); // or just set ids=(-1,-1)?
 	}
 }
 

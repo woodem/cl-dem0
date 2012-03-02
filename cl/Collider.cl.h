@@ -12,6 +12,9 @@ enum _cjournal {
 	CJOURNAL_CON_DEL    // real contact broken & no bboxes overlap; deleted from con (index is unused)
 };
 
+struct CJournalItem;
+inline void CJournalItem_init(global struct CJournalItem*);
+
 /* structure for logging changes in contact arrays */
 struct CJournalItem {
 	// type of change; (-1 means an invalid item which should be skipped)
@@ -25,13 +28,12 @@ struct CJournalItem {
 			if(ids.s0<0) return "{}";
 			return "{##"+lexical_cast<string>(ids.s0)+"+"+lexical_cast<string>(ids.s1)+" "+(what==CJOURNAL_POT2CON?("→ con["+lexical_cast<string>(index)+"]"):(what==CJOURNAL_CON2POT?("⇒ pot["+lexical_cast<string>(index)+"]"):"×"))+"}";
 		}
+		CJournalItem(){ CJournalItem_init(this); }
 	#endif
 };
 
-static struct CJournalItem CJournalItem_new(){
-	struct CJournalItem ret;
-	ret.what=ret.index=ret.ids.s0=ret.ids.s1=-1;
-	return ret;
+inline void CJournalItem_init(global struct CJournalItem* i){
+	i->what=i->index=i->ids.s0=i->ids.s1=-1;
 };
 
 
@@ -76,6 +78,7 @@ namespace clDem{
 		void clearSimPot();
 		void addPot(par_id_t id1, par_id_t id2, bool useFree /*use potFree array */);
 		void delPot(par_id_t id1, par_id_t id2, ConLoc* cl);
+		void compactFree();
 
 		std::string ids2str(par_id_t id1, par_id_t id2){ return "##"+lexical_cast<string>(id1)+"+"+lexical_cast<string>(id2); }
 		std::string ids2str(const cl_long2& ii){ return ids2str(ii.s0,ii.s1); }
