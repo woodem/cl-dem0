@@ -170,6 +170,7 @@ void CpuCollider::initialStep(){
 			par_id_t id1=b0.id,id2=bounds[ax0][j].id;
 			// cerr<<"##"<<id1<<"+"<<id2<<endl;
 			if(!bboxOverlap(id1,id2)) continue;
+			if(!Scene_particles_may_collide(scene,&(sim->par[id1]),&(sim->par[id2]))) continue;
 			if(find(id1,id2)) continue;
 			if(id1>id2) std::swap(id1,id2);
 			addPot(id1,id2, /* useFree */ false);
@@ -345,7 +346,9 @@ void CpuCollider::insertionSort(){
 							delPot(minId,maxId,cl);
 						}
 						// min going below max: the contact might be created, if there is overlap
-						if(bbInit.isMin && !cl && bboxOverlap(minId,maxId)) addPot(minId,maxId,/*useFree*/true);
+						if(bbInit.isMin && !cl && bboxOverlap(minId,maxId)){
+							if(Scene_particles_may_collide(scene,&(sim->par[minId]),&(sim->par[maxId]))) addPot(minId,maxId,/*useFree*/true);
+						}
 						// otherwise, the contact is real or non-existent, do nothing
 					#endif
 					// LOG_TRACE("["<<maxId<<"↔ "<<minId<<"]");

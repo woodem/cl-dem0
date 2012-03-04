@@ -82,6 +82,11 @@ struct Scene{
 	Vec3 gravity;
 	Real damping;
 	Real verletDist;
+	/*
+	groupmask for groups which don't interact mutually;
+	(p1.group & p2.group & scene.loneGroups)!=0 ⇒ no contact between p1 & p2
+	*/
+	cl_int loneGroups;
 	cl_bool updateBboxes;
 	struct Material materials[SCENE_MAT_NUM];
 	float energy[SCENE_ENERGY_NUM];
@@ -108,6 +113,7 @@ inline void Scene_init(struct Scene* s){
 	s->gravity=Vec3_set(0,0,0);
 	s->damping=0.;
 	s->verletDist=-1.; // no interrupts due to spheres getting out of bboxes
+	s->loneGroups=0;
 	Scene_interrupt_reset(s);
 	s->updateBboxes=false;
 	// no materials
@@ -131,6 +137,22 @@ static py::dict Scene_arr_get(struct Scene* s){
 
 
 #endif
+
+/*
+Decide whether particles may create contact at all:
+1. (not yet implemented:) clumps can't collide (only their member particles can)
+2. particles which have a common group which is in Scene::loneGroups may not collide
+3. particles which share no common group may not collide
+
+This functions is called by the collider; non-interacting particles should not
+be inserted in potential contacts at all.
+ */
+inline bool Scene_particles_may_collide(global struct Scene* s, global struct Particle* p1, global struct Particle* p2){
+	// check if one of the particles is a clump, in that case there is no collision possible
+	if((par_groups_get(p1) & par_groups_get(p2) & s->loneGroups)!=0) return false;
+	if((par_groups_get(p1) & par_groups_get(p2))==0) return false;
+	return true;
+}
 
 /*
 FIXME FIXME FIXME:
@@ -267,6 +289,7 @@ bool Scene_skipKernel(global struct Scene* s, int substep){
 		)
 	);
 }
+
 #endif
 
 // exposed to python, hence must be visible to the host
@@ -343,7 +366,7 @@ namespace clDem{
 			py::class_<ElastMat>("ElastMat").def("__init__",ElastMat_new).PY_RW(ElastMat,density).PY_RW(ElastMat,young);
 
 			py::class_<Scene>("Scene")
-				.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,step).PY_RWV(Scene,gravity).PY_RW(Scene,damping).PY_RW(Scene,verletDist)
+				.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,step).PY_RWV(Scene,gravity).PY_RW(Scene,damping).PY_RW(Scene,verletDist).PY_RW(Scene,loneGroups)
 				.add_property("arr",Scene_arr_get)
 				.add_property("materials",Scene_mats_get,Scene_mats_set)
 				.add_property("energy",Scene_energy_get) //,py::arg("omitZero")=true)

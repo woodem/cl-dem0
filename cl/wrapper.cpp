@@ -1,8 +1,8 @@
 #include"Simulation.hpp"
 #include"Collider.cl.h"
 
-#include<eigen3/Eigen/Core>
-#include<eigen3/Eigen/Geometry>
+#include<Eigen/Core>
+#include<Eigen/Geometry>
 /* miniEigen types */
 typedef double Real;
 typedef Eigen::Matrix<int,2,1> Vector2i;

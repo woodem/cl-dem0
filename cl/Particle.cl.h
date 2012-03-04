@@ -74,6 +74,9 @@ constant int par_dofs_trans=7; // 0b0000111
 constant int par_dofs_rot=56;  // 0b0111000
 constant int par_dofs_all=63;  // 0b0111111
 
+// all groups
+constant int par_groups_all=(1<<PAR_LEN_groups)-1;
+
 static void Particle_init(global struct Particle* p){
 	p->flags=0;
 	p->pos=Vec3_set(NAN,NAN,NAN);
@@ -89,7 +92,7 @@ static void Particle_init(global struct Particle* p){
 	par_clumped_set(p,0);
 	par_stateT_set(p,0);
 	par_dofs_set(p,par_dofs_all);
-	par_groups_set(p,0);
+	par_groups_set(p,par_groups_all);
 	par_matId_set(p,0);
 }
 

@@ -23,11 +23,13 @@ for clss in ('Scene','ElastMat','Particle','Sphere','Contact','L1Geom','L6Geom',
 Simulation=_clDem.Simulation
 
 # utility functions here
-def mkSphere(pos,radius,sim,matId=0,fixed=False):
+def mkSphere(pos,radius,sim,matId=0,groups=None,fixed=False):
 	rho=sim.scene.materials[matId].density
 	mass=rho*(4/3.)*math.pi*radius**3
 	inert=mass*(2/5.)*radius**2
-	return Particle(pos=pos,mass=mass,inertia=(inert,inert,inert),dofs=0 if fixed else 63,shape=Sphere(radius=radius),matId=matId)
+	p=Particle(pos=pos,mass=mass,inertia=(inert,inert,inert),dofs=0 if fixed else 63,shape=Sphere(radius=radius),matId=matId)
+	if groups!=None: p.groups=groups
+	return p
 
 def briefOutput():
 	# output similar to the c++ code
