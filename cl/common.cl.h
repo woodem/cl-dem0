@@ -18,6 +18,7 @@
 #ifdef __OPENCL_VERSION__
 	#define static
 	#define cl_short2 short2
+	#define cl_short short
 	#define cl_long2 long2
 	#define cl_bool bool
 	#define cl_int int

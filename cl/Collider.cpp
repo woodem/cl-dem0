@@ -351,7 +351,7 @@ void CpuCollider::insertionSort(){
 						}
 						// otherwise, the contact is real or non-existent, do nothing
 					#endif
-					// LOG_TRACE("["<<maxId<<"↔ "<<minId<<"]");
+					// COLL_DBG("["<<maxId<<"↔ "<<minId<<"]");
 				}
 				bb[j+1]=bb[j];
 				j--;

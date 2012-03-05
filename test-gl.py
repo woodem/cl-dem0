@@ -17,14 +17,19 @@ r=.005
 sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION -DTRACK_ENERGY")
 
 sim.scene.materials=[clDem.ElastMat(young=1e6,density=1e3)]
-sim.scene.gravity=(0,0,-10)
+sim.scene.gravity=(-1,-5,-10)
 sim.scene.damping=.4
-sim.scene.verletDist=.2*r # collision detection in this case
+sim.scene.verletDist=.3*r # collision detection in this case
 sim.maxScheduledSteps=100
 
+sim.par.append(clDem.mkWall(pos=(0,0,2*r),axis=2,sim=sim,matId=0))
+sim.par.append(clDem.mkWall(pos=(0,0,0),axis=0,sim=sim,matId=0))
+sim.par.append(clDem.mkWall(pos=(0,0,0),axis=1,sim=sim,matId=0))
+
 # ground
-for x0,x1 in itertools.product(range(0,dim[0]),range(0,dim[1])):
-	sim.par.append(clDem.mkSphere((x0*2*r,x1*2*r,0),r,sim,matId=0,groups=0b011,fixed=True))
+#for x0,x1 in itertools.product(range(0,dim[0]),range(0,dim[1])):
+#	sim.par.append(clDem.mkSphere((x0*2*r,x1*2*r,0),r,sim,matId=0,groups=0b011,fixed=True))
+
 sim.scene.loneGroups=0b010
 
 import yade.pack
@@ -32,7 +37,7 @@ sp=yade.pack.SpherePack()
 sp.makeCloud((2*r*margin,2*r*margin,2*r),((dim[0]-margin)*2*r,(dim[1]-margin)*2*r,dim[2]*2*r),r,rRelFuzz=.5)
 for center,radius in sp:
 	sim.par.append(clDem.mkSphere(center,radius,sim,matId=0,groups=0b001,fixed=False))
-	sim.par[-1].vel=(0,0,random.random()*-.05)
+	sim.par[-1].vel=(0,0,-.05)
 
 sim.scene.dt=.2*sim.pWaveDt()
 O.scene.dt=sim.scene.dt

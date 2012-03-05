@@ -190,6 +190,12 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
 			mn=p->pos-(Vec3)(p->shape.sphere.radius);
 			mx=p->pos+(Vec3)(p->shape.sphere.radius);
 			break;
+		case Shape_Wall:
+			mn=(Vec3)-INFINITY; mx=(Vec3)INFINITY;
+			if(p->shape.wall.axis==0) mn.s0=mx.s0=p->pos.s0;
+			else if(p->shape.wall.axis==1) mn.s1=mx.s1=p->pos.s1;
+			else if(p->shape.wall.axis==2) mn.s2=mx.s2=p->pos.s2;
+			else /* error */ printf("ERROR: #%ld is a wall with axis=%d!\n",id,p->shape.wall.axis);
 		default: /* */;
 	}
 	p->bboxPos=p->pos;
@@ -203,7 +209,7 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
 	if(id==0) Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE | INT_NOT_DESTRUCTIVE | INT_BBOXES);
 }
 
-void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, const Real r1, const Real r2, Real dt){
+void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, Real dt){
 	// new contact
 	if(con_geomT_get(c)==0){
 		con_geomT_set(c,Geom_L6Geom); c->geom.l6g=L6Geom_new();
@@ -245,6 +251,10 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	if(ids.s0<0 || ids.s1<0) return; // deleted contact
 	PRINT_TRACE("checkPotCon_PC");
 	
+	// always make contacts such that shape index of the first particle <= shape index of the second particle
+	int flip=par_shapeT_get(&par[ids.s0])>par_shapeT_get(&par[ids.s1]);
+	if(flip) ids=(par_id2_t)(ids.s1,ids.s0);
+
 	global const struct Particle* p1=&(par[ids.s0]);
 	global const struct Particle* p2=&(par[ids.s1]);
 	switch(SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2))){
@@ -256,7 +266,11 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 			}
 			break;
 		}
-		default: /* error? */ return;
+		case SHAPET2_COMBINE(Shape_Sphere,Shape_Wall):{
+			if(fabs(((global Real*)(&(p1->pos)))[p2->shape.wall.axis]-((global Real*)(&(p2->pos)))[p2->shape.wall.axis])>=p1->shape.sphere.radius) return;
+			break;
+		}
+		default: printf("ERROR: Invalid shape indices in pot ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, sphere+wall=%d)!\n",ids.s0,ids.s1,par_shapeT_get(p1),par_shapeT_get(p2),SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall)); return;
 	};
 	#ifdef CON_LOG
 		printf("Creating ##%ld+%ld\n",ids.s0,ids.s1);
@@ -284,6 +298,7 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	if(ixCon<0){ Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
 	// actually create the new contact here
 	#if 1
+		// debugging only (the race conditions is fixed now, so it should not happen anymore)
 		if(con[ixCon].ids.s0>0){ printf("ERROR: con[%d] reported as free, but contains ##%ld+%ld\n",ixCon,con[ixCon].ids.s0,con[ixCon].ids.s1); }
 	#endif
 	Contact_init(&(con[ixCon]));
@@ -314,6 +329,8 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	bool contactBroken=false;
 	global const struct Particle* p1=&(par[c->ids.s0]);
 	global const struct Particle* p2=&(par[c->ids.s1]);
+	if(par_shapeT_get(p1)>par_shapeT_get(p2)) printf("ERROR: ##%ld+%ld is not ordered by shape indices: %d+%d\n",c->ids.s0,c->ids.s1,par_shapeT_get(p1),par_shapeT_get(p2));
+
 	/* create geometry for new contacts */
 	switch(SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2))){
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
@@ -325,10 +342,30 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 				if(uN>0) contactBroken=true;
 			#endif
 			Vec3 contPt=p1->pos+(r1+.5*uN)*normal;
-			computeL6GeomGeneric(c,p1->pos,p1->vel,p1->angVel,p2->pos,p2->vel,p2->angVel,normal,contPt,uN,r1,r2,scene->dt);
+			computeL6GeomGeneric(c,p1->pos,p1->vel,p1->angVel,p2->pos,p2->vel,p2->angVel,normal,contPt,uN,scene->dt);
 			break;
 		}
-		default: /* signal error */ ;
+		case SHAPET2_COMBINE(Shape_Sphere,Shape_Wall):{
+			short axis=p2->shape.wall.axis, sense=p2->shape.wall.sense;
+			// coordinates along wall normal axis
+			Real cS=((global Real*)(&p1->pos))[axis], cW=((global Real*)(&p2->pos))[axis]; 
+			Real signedDist=cW-cS;
+			Vec3 normal=(Vec3)0.;
+			// if sense==0, the normal is oriented from the wall towards the sphere's center
+			if(sense==0) ((Real*)&normal)[axis]=signedDist>0?1.:-1.;
+			// else it is always oriented either along +axis or -axis
+			else ((Real*)&normal)[axis]=(sense>0?-1.:1.);
+			Real uN=((Real*)&normal)[axis]*signedDist-p1->shape.sphere.radius;
+			//printf("uN=%g, normal=%v3g, signedDist=%g, radius=%g\n",uN,normal,signedDist,p1->shape.sphere.radius);
+			#ifdef L6GEOM_BREAK_TENSION
+				if(uN>0) contactBroken=true;
+			#endif
+			// project sphere onto the wall
+			Vec3 contPt=p1->pos; ((Real*)(&contPt))[axis]=((global Real*)&p2->pos)[axis];
+			computeL6GeomGeneric(c,p1->pos,p1->vel,p1->angVel,p2->pos,p2->vel,p2->angVel,normal,contPt,uN,scene->dt);
+			break;
+		}
+		default: printf("ERROR: ##%ld+%ld has unknown shape index combination %d+%d",c->ids.s0,c->ids.s1,par_shapeT_get(p1),par_shapeT_get(p2));
 	}
 	/* update physical params: only if there are no physical params yet */
 	if(!contactBroken && con_physT_get(c)==0){

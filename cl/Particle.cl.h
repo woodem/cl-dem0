@@ -5,10 +5,22 @@
 
 CLDEM_NAMESPACE_BEGIN();
 
-struct Sphere{	Real radius; };
-inline struct Sphere Sphere_new(){ struct Sphere ret; ret.radius=NAN; return ret; }
+struct Sphere{
+	Real radius;
+	#ifdef __cplusplus
+		Sphere(): radius(NAN) {}
+	#endif
+};
 
-enum _shape_enum { Shape_None=0, Shape_Sphere, };
+struct Wall{
+	cl_short axis;
+	cl_short sense;
+	#ifdef __cplusplus
+		Wall(): axis(-1), sense(0){}
+	#endif
+};
+
+enum _shape_enum { Shape_None=0, Shape_Sphere, Shape_Wall };
 
 
 struct Particle;
@@ -22,8 +34,10 @@ struct Particle{
 	Vec3 inertia;
 	Real mass;
 	Vec3 force, torque;
-	union {
+	union _shape {
+		UNION_BITWISE_CTORS(_shape)
 		struct Sphere sphere;
+		struct Wall wall;
 	} AMD_UNION_ALIGN_BUG_WORKAROUND() shape;
 	int mutex;
 	// needed for boost::python
@@ -110,6 +124,7 @@ namespace clDem{
 		switch(shapeT){
 			case 0: return py::object(); // None
 			case Shape_Sphere: return py::object(p->shape.sphere);
+			case Shape_Wall: return py::object(p->shape.wall);
 			default:	throw std::runtime_error("Particle has shape with unknown index "+lexical_cast<string>(shapeT));
 		}
 	}
@@ -117,9 +132,14 @@ namespace clDem{
 	void Particle_shape_set(Particle *p, py::object sh){
 		if(sh==py::object()){ par_shapeT_set(p,0); return; }
 		py::extract<Sphere> sphere(sh);
+		py::extract<Wall> wall(sh);
 		if(sphere.check()){
 			p->shape.sphere=sphere();
 			par_shapeT_set(p,Shape_Sphere);
+		}
+		else if(wall.check()){
+			p->shape.wall=wall();
+			par_shapeT_set(p,Shape_Wall);
 		}
 		else throw std::runtime_error("Unknown shape object.");
 	}
@@ -127,7 +147,8 @@ namespace clDem{
 	#ifndef YADE_CLDEM
 		static
 		void Particle_cl_h_expose(){
-			py::class_<Sphere>("Sphere").def("__init__",Sphere_new).PY_RW(Sphere,radius);
+			py::class_<Sphere>("Sphere").PY_RW(Sphere,radius);
+			py::class_<Wall>("Wall").PY_RW(Wall,axis).PY_RW(Wall,sense);
 
 			py::class_<Particle>("Particle")//.def("__init__",py::make_constructor(Particle_new))
 				.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,force).PY_RWV(Particle,torque).PY_RWV(Particle,bboxPos)

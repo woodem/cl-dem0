@@ -30,12 +30,13 @@ struct Contact{
 	Vec3 pos;
 	Mat3 ori;
 	Vec3 force, torque;
-	union _gg {
-		UNION_BITWISE_CTORS(_gg)
+	union _geom {
+		UNION_BITWISE_CTORS(_geom)
 		struct L1Geom l1g;
 		struct L6Geom l6g;
 	}  AMD_UNION_ALIGN_BUG_WORKAROUND() geom;
-	union {
+	union _phys {
+		UNION_BITWISE_CTORS(_phys)
 		struct NormPhys normPhys;
 	}  AMD_UNION_ALIGN_BUG_WORKAROUND() phys;
 };

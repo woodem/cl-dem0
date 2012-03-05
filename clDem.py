@@ -17,7 +17,7 @@ def BaseClassSetter(baseClass,**kw):
 # functions which look like constructors, but set all attributes from keyword passed to them
 # the actual classes are in the _clDem module, which is not imported into the namespace
 # of this module directly
-for clss in ('Scene','ElastMat','Particle','Sphere','Contact','L1Geom','L6Geom','NormPhys'):
+for clss in ('Scene','ElastMat','Particle','Sphere','Wall','Contact','L1Geom','L6Geom','NormPhys'):
 	# global() is reference to the global (module, in this case) dictionary
 	globals()[clss]=functools.partial(BaseClassSetter,getattr(_clDem,clss))
 Simulation=_clDem.Simulation
@@ -28,6 +28,11 @@ def mkSphere(pos,radius,sim,matId=0,groups=None,fixed=False):
 	mass=rho*(4/3.)*math.pi*radius**3
 	inert=mass*(2/5.)*radius**2
 	p=Particle(pos=pos,mass=mass,inertia=(inert,inert,inert),dofs=0 if fixed else 63,shape=Sphere(radius=radius),matId=matId)
+	if groups!=None: p.groups=groups
+	return p
+
+def mkWall(pos,axis,sim,matId=0,sense=0,groups=None,fixed=True):
+	p=Particle(pos=pos,mass=-1,inertia=(0,0,0),dofs=0 if fixed else 63,shape=Wall(axis=axis,sense=sense),matId=matId)
 	if groups!=None: p.groups=groups
 	return p
 
