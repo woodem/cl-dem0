@@ -207,7 +207,7 @@ inline long Scene_arr_findNegative_or_append(global struct Scene* s, int arrIx, 
 			#ifdef __cplusplus
 				//cerr<<"At element "<<i<<"="<<arr[i]<<endl;
 			#endif
-			if(arr[i]<0 && atom_xchg(&arr[i],0)<0){
+			if(atom_cmpxchg(&arr[i],-1,0)==-1){
 				#ifdef __cplusplus
 					//cerr<<"Changed to 0, returning "<<i<<endl;
 				#endif

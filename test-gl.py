@@ -10,9 +10,9 @@ import pylab, itertools, random
 pNum=int(sys.argv[1]) if len(sys.argv)>1 else -1
 dNum=int(sys.argv[2]) if len(sys.argv)>2 else -1
 
-dim=30,30,5
+dim=60,60,10
 margin=10
-r=.0051
+r=.005
 
 sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION -DTRACK_ENERGY")
 

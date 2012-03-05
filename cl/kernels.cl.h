@@ -289,6 +289,9 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	// add to con
 	if(ixCon<0){ Scene_interrupt_set(scene,substep,INT_ARR_CON,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
 	// actually create the new contact here
+	#if 1
+		if(con[ixCon].ids.s0>0){ printf("ERROR: con[%d] reported as free, but contains ##%ld+%ld\n",ixCon,con[ixCon].ids.s0,con[ixCon].ids.s1); }
+	#endif
 	Contact_init(&(con[ixCon]));
 	con[ixCon].ids=ids;
 
