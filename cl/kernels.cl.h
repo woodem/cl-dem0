@@ -43,12 +43,6 @@ CLDEM_NAMESPACE_END()
 // all kernels take the same set of arguments, for simplicity in the host code
 #define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int *conFree, global long2* pot, global int *potFree, global struct CJournalItem* cJournal, global int* clumps, global float* bboxes
 
-// return when either interrupt before NAME was set in this or previous steps
-// or when interrupt NAME or after was set in previous steps.
-// This assures that setting interrupt from a kernel will not prevent
-// other work-items of the same kernel to be run. In another words,
-// kernels will always either run for all work-items, or for none.
-
 #ifdef cl_amd_printf
 	#define PRINT_TRACE(name)
 #else
@@ -206,7 +200,7 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
 	//printf("%ld: %v3g±(%g+%g) %v3g %v3g\n",id,p->pos,scene->verletDist,p->shape.sphere.radius,mn,mx);
 
 	// not immediate since all threads must finish
-	if(id==0) Scene_interrupt_set(scene,substep,INT_BBOXES_UPDATED,/*flags*/INT_NOT_IMMEDIATE | INT_NOT_DESTRUCTIVE);
+	if(id==0) Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE | INT_NOT_DESTRUCTIVE | INT_BBOXES);
 }
 
 void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, const Real r1, const Real r2, Real dt){
@@ -283,11 +277,11 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	// not immediate, since other work-items might increase the required capacity yet more
 	if(ixPotFree<0){
 		//printf("!! potfree insufficient, size=%d, alloc=%d\n",scene->arrSize[ARR_POTFREE],scene->arrAlloc[ARR_POTFREE]);
-		Scene_interrupt_set(scene,substep,INT_ARR_POTFREE,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+		Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
 	potFree[ixPotFree]=cid;
 	
 	// add to con
-	if(ixCon<0){ Scene_interrupt_set(scene,substep,INT_ARR_CON,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+	if(ixCon<0){ Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
 	// actually create the new contact here
 	#if 1
 		if(con[ixCon].ids.s0>0){ printf("ERROR: con[%d] reported as free, but contains ##%ld+%ld\n",ixCon,con[ixCon].ids.s0,con[ixCon].ids.s1); }
@@ -296,7 +290,7 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	con[ixCon].ids=ids;
 
 	// add the change to cJournal
-	if(ixCJournal<0){ Scene_interrupt_set(scene,substep,INT_ARR_CJOURNAL,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+	if(ixCJournal<0){ Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
 	CJournalItem_init(&(cJournal[ixCJournal]));
 	cJournal[ixCJournal].ids=ids; cJournal[ixCJournal].index=ixCon; cJournal[ixCJournal].what=CJOURNAL_POT2CON;
 };
@@ -408,14 +402,14 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 		int ixConFree=Scene_arr_findNegative_or_append(scene,ARR_CONFREE,conFree); // index where to write free slot
 		int ixCJournal=Scene_arr_append(scene,ARR_CJOURNAL);
 		//printf("ix=%d\n",ix);
-		if(ixConFree<0){ Scene_interrupt_set(scene,substep,INT_ARR_CONFREE,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+		if(ixConFree<0){ Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
 		conFree[ixConFree]=cid;
-		if(ixCJournal<0){ Scene_interrupt_set(scene,substep,INT_ARR_CJOURNAL,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+		if(ixCJournal<0){ Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
 		// if there is overlap, put back to potential contacts
 		//printf("bboxes (%v3g)--(%v3g)  (%v3g)--(%v3g)\n",(Vec3)(bboxes[6*c->ids.s0],bboxes[6*c->ids.s0+1],bboxes[6*c->ids.s0+2]),(Vec3)(bboxes[6*c->ids.s0+3],bboxes[6*c->ids.s0+4],bboxes[6*c->ids.s0+5]),(Vec3)(bboxes[6*c->ids.s1],bboxes[6*c->ids.s1+1],bboxes[6*c->ids.s1+2]),(Vec3)(bboxes[6*c->ids.s1+3],bboxes[6*c->ids.s1+4],bboxes[6*c->ids.s1+5]));
 		if(Bbox_overlap(&(bboxes[6*c->ids.s0]),&(bboxes[6*c->ids.s1]))){
 			int ixPot=Scene_arr_fromFreeArr_or_append(scene,potFree,ARR_POTFREE,ARR_POT,/*shrink*/true);
-			if(ixPot<0){ Scene_interrupt_set(scene,substep,INT_ARR_POT,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE); return; }
+			if(ixPot<0){ Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
 			pot[ixPot]=c->ids;
 			// write to the log
 			cJournal[ixCJournal].ids=c->ids; cJournal[ixCJournal].index=ixPot; cJournal[ixCJournal].what=CJOURNAL_CON2POT;

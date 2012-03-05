@@ -45,12 +45,15 @@ static constant struct EnergyProperties energyDefinitions[]={
 	{"elast",ENERGY_elast,false},
 };
 
-// interrupt codes
-enum _interrupts{ INT_BBOXES_UPDATED=0, INT_ARR_CON, INT_ARR_CONFREE, INT_ARR_POT, INT_ARR_POTFREE, INT_ARR_CJOURNAL, INT_NUM };
 // interrupt flags
 enum _int_flags {
-	INT_NOT_IMMEDIATE=0, INT_NOT_DESTRUCTIVE=0, // null flags, for clarity of code
-	INT_IMMEDIATE=1, INT_DESTRUCTIVE=2 };
+	// null flags, for clarity of the code
+	INT_NOT_IMMEDIATE=0, INT_NOT_DESTRUCTIVE=0, 
+	INT_IMMEDIATE=1,
+	INT_DESTRUCTIVE=2,
+	INT_ARRAYS=4,
+	INT_BBOXES=8,
+};
 // dynamic arrays indices
 enum _dynarrays { ARR_CON=0, ARR_CONFREE, ARR_POT, ARR_POTFREE, ARR_CJOURNAL, ARR_NUM };
 
@@ -76,7 +79,6 @@ struct Scene{
 	struct Interrupt {
 		cl_int step; // when -1, no interrupt; // FIXME: should be long, but there are no atomics on longs!
 		cl_int substep;
-		cl_int what;
 		cl_int flags;
 	} interrupt;
 	Vec3 gravity;
@@ -103,7 +105,7 @@ struct Scene{
 
 inline void Scene_interrupt_reset(struct Scene* s){
 	s->interrupt.step=-1;
-	s->interrupt.substep=s->interrupt.what=s->interrupt.flags=0;
+	s->interrupt.substep=s->interrupt.flags=0;
 }
 
 inline void Scene_init(struct Scene* s){
@@ -257,12 +259,11 @@ inline long Scene_arr_fromFreeArr_or_append(global struct Scene* scene, global i
 }
 
 #ifdef __OPENCL_VERSION__
-bool Scene_interrupt_set(global struct Scene* s, int substep, int what, int flags){
+bool Scene_interrupt_set(global struct Scene* s, int substep, int flags){
 	if(atom_cmpxchg(&s->interrupt.step,-1,s->step)==-1){
 		// enabling this printf makes some bboxes NaN?!!!
 		// printf("%d/%d: Setting interrupt %d\n",/*make AMD happy*/(int)s->step,substep,what);
 		s->interrupt.substep=substep;
-		s->interrupt.what=what;
 		s->interrupt.flags=flags;
 		return true;
 	}
@@ -354,9 +355,10 @@ namespace clDem{
 		py::dict ret;
 		ret["step"]=s->interrupt.step;
 		ret["substep"]=s->interrupt.substep;
-		ret["what"]=s->interrupt.what;
 		ret["destructive"]=(bool)(s->interrupt.flags&INT_DESTRUCTIVE);
 		ret["immediate"]=(bool)(s->interrupt.flags&INT_IMMEDIATE);
+		ret["arrays"]=(bool)(s->interrupt.flags&INT_ARRAYS);
+		ret["bboxes"]=(bool)(s->interrupt.flags&INT_BBOXES);
 		return ret;
 	}
 	#ifndef YADE_CLDEM
