@@ -74,6 +74,7 @@ constant flagSpec par_flag_matId  ={PAR_OFF_matId,PAR_LEN_matId};
 
 #define PARTICLE_FLAG_GET_SET(what) \
 	inline int par_##what##_get(global const struct Particle *p){ return flags_get(p->flags,par_flag_##what); } \
+	inline int par_##what##_get_local(const struct Particle *p){ return flags_get(p->flags,par_flag_##what); } \
 	inline void par_##what##_set(global struct Particle *p, int val){ flags_set(&(p->flags),par_flag_##what,val); } \
 	inline void par_##what##_set_local(struct Particle *p, int val){ flags_set_local(&(p->flags),par_flag_##what,val); }
 PARTICLE_FLAG_GET_SET(shapeT);

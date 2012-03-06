@@ -10,17 +10,17 @@ import pylab, itertools, random
 pNum=int(sys.argv[1]) if len(sys.argv)>1 else -1
 dNum=int(sys.argv[2]) if len(sys.argv)>2 else -1
 
-dim=60,60,10
+dim=40,40,10
 margin=10
 r=.005
 
-sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION -DTRACK_ENERGY")
+sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION") # -DTRACK_ENERGY")
 
 sim.scene.materials=[clDem.ElastMat(young=1e6,density=1e3)]
-sim.scene.gravity=(-1,-5,-10)
+sim.scene.gravity=(-4,-5,-10)
 sim.scene.damping=.4
 sim.scene.verletDist=.3*r # collision detection in this case
-sim.maxScheduledSteps=100
+sim.maxScheduledSteps=10
 
 sim.par.append(clDem.mkWall(pos=(0,0,2*r),axis=2,sim=sim,matId=0))
 sim.par.append(clDem.mkWall(pos=(0,0,0),axis=0,sim=sim,matId=0))
@@ -39,7 +39,7 @@ for center,radius in sp:
 	sim.par.append(clDem.mkSphere(center,radius,sim,matId=0,groups=0b001,fixed=False))
 	sim.par[-1].vel=(0,0,-.05)
 
-sim.scene.dt=.2*sim.pWaveDt()
+sim.scene.dt=.5*sim.pWaveDt()
 O.scene.dt=sim.scene.dt
 
 

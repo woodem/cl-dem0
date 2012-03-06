@@ -49,9 +49,15 @@ CLDEM_NAMESPACE_END()
 	#define PRINT_TRACE(name) // { if(get_global_id(0)==0) printf("%s:%-4d %4ld/%d %s\n",__FILE__,__LINE__,scene->step,substep,name); }
 #endif
 
-#define TRYLOCK(a) atom_cmpxchg(a,0,1)
-#define LOCK(a) while(TRYLOCK(a))
-#define UNLOCK(a) atom_xchg(a,0)
+#if 1
+	#define TRYLOCK(a) atom_cmpxchg(a,0,1)
+	#define LOCK(a) while(TRYLOCK(a))
+	#define UNLOCK(a) atom_xchg(a,0)
+#else
+	#define TRYLOCK(a)
+	#define LOCK(a)
+	#define UNLOCK(a)
+#endif
 
 #ifdef TRACK_ENERGY
 	#define ADD_ENERGY(scene,name,E) Scene_energyAdd(scene,ENERGY_##name,E);
@@ -106,7 +112,13 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	PRINT_TRACE("integrator_P");
 
 	global struct Particle *p=&(par[get_global_id(0)]);
-	int dofs=par_dofs_get(p);
+	struct Particle pp=*p;
+	Real dt=scene->dt;
+	Vec3 gravity=scene->gravity;
+	Real damping=scene->damping;
+	Real verletDist=scene->verletDist;
+
+	int dofs=par_dofs_get_local(&pp);
 	Vec3 accel=0., angAccel=0.;
 	// optimize for particles with all translations/rotations (vector ops)
 	// aspherical integration (if p->inertia has the same components)
@@ -118,13 +130,13 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 #else
 
 	// use vector ops for particles free in all 3 dofs, and on-eby-one only for those which are partially fixed
-	p->force+=scene->gravity*p->mass; // put this up here so that grav appears in the force term
+	pp.force+=gravity*pp.mass; // put this up here so that grav appears in the force term
 
 	// some translations are allowed, compute gravity contribution
-	if((dofs & par_dofs_trans)!=0) ADD_ENERGY(scene,grav,-dot(scene->gravity,p->vel)*p->mass*scene->dt);
+	if((dofs & par_dofs_trans)!=0) ADD_ENERGY(scene,grav,-dot(gravity,p->vel)*pp.mass*dt);
 
 	if((dofs&par_dofs_trans)==par_dofs_trans){ // all translations possible, use vector expr
-		accel+=p->force/p->mass;
+		accel+=pp.force/pp.mass;
 	} else {
 		for(int ax=0; ax<3; ax++){
 			if(dofs & dof_axis(ax,false)) ((Real*)(&accel))[ax]+=((global Real*)(&(p->force)))[ax]/p->mass+((global Real*)(&(scene->gravity)))[ax];
@@ -132,7 +144,7 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 		}
 	}
 	if((dofs&par_dofs_rot)==par_dofs_rot){
-		angAccel+=p->torque/p->inertia.x;
+		angAccel+=pp.torque/pp.inertia.x;
 	} else {
 		for(int ax=0; ax<3; ax++){
 			if(dofs & dof_axis(ax,true )) ((Real*)(&angAccel))[ax]+=((global Real*)(&p->torque))[ax]/p->inertia.x;
@@ -143,27 +155,27 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	#ifdef DUMP_INTEGRATOR
 		if(dofs!=0) printf("$%ld/%d: v=%v3g, ω=%v3g, F=%v3g, T=%v3g, a=%v3g",scene->step,get_global_id(0),p->vel,p->angVel,p->force,p->torque,accel);
 	#endif
-	if(scene->damping!=0){
-		ADD_ENERGY(scene,damp,(dot(fabs(p->vel),fabs(p->force))+dot(fabs(p->angVel),fabs(p->torque)))*scene->damping*scene->dt);
-		accel   =accel   *(1-scene->damping*sign(p->force *(p->vel   +accel   *scene->dt/2)));
-		angAccel=angAccel*(1-scene->damping*sign(p->torque*(p->angVel+angAccel*scene->dt/2)));
+	if(damping!=0){
+		ADD_ENERGY(scene,damp,(dot(fabs(p->vel),fabs(p->force))+dot(fabs(p->angVel),fabs(p->torque)))*damping*dt);
+		accel   =accel   *(1-damping*sign(pp.force *(pp.vel   +accel   *dt/2)));
+		angAccel=angAccel*(1-damping*sign(pp.torque*(pp.angVel+angAccel*dt/2)));
 	}
 
 	// this estimates velocity at next on-step using current accel; it follows how yade computes it currently
-	ADD_ENERGY(scene,Ekt,.5*p->mass*Vec3_sqNorm(p->vel+.5*scene->dt*accel));
+	ADD_ENERGY(scene,Ekt,.5*pp.mass*Vec3_sqNorm(pp.vel+.5*dt*accel));
 	// valid only for spherical particles (fix later)
-	ADD_ENERGY(scene,Ekr,.5*dot(p->inertia*(p->angVel+.5*scene->dt*angAccel),p->angVel+.5*scene->dt*angAccel));
+	ADD_ENERGY(scene,Ekr,.5*dot(pp.inertia*(pp.angVel+.5*dt*angAccel),pp.angVel+.5*dt*angAccel));
 
-	p->vel+=accel*scene->dt;
-	p->angVel+=angAccel*scene->dt;
-	p->pos+=p->vel*scene->dt;
+	pp.vel+=accel*dt;
+	pp.angVel+=angAccel*dt;
+	pp.pos+=pp.vel*dt;
 	#ifdef DUMP_INTEGRATOR
 		if(dofs!=0) printf(", aDamp=%v3g, vNew=%v3g, posNew=%v3g\n",accel,p->vel,p->pos);
 	#endif
-	p->ori=Quat_multQ(Quat_fromRotVec(p->angVel*scene->dt),p->ori); // checks automatically whether |rotVec|==0
+	pp.ori=Quat_multQ(Quat_fromRotVec(pp.angVel*dt),pp.ori); // checks automatically whether |rotVec|==0
 	//
 	// reset forces on particles
-	p->force=p->torque=(Vec3)0.;
+	// pp.force=pp.torque=(Vec3)0.;
 
 	// is this safe for multi-threaded? is the new value always going to be written?
 	// it is not read until in the next kernel
@@ -172,7 +184,14 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 		printf("#%ld boxPos=%g\n",get_global_id(0),p->bboxPos.s1);
 		printf("#%ld boxPos=%g\n",get_global_id(0),p->bboxPos.s2);
 	#endif
-	if(scene->verletDist>=0 && (Vec3_sqNorm(p->pos-p->bboxPos)>pown(scene->verletDist,2) || isnan(p->bboxPos.s0))) scene->updateBboxes=true;
+	if(verletDist>=0 && (Vec3_sqNorm(pp.pos-pp.bboxPos)>pown(verletDist,2) || isnan(p->bboxPos.s0))) scene->updateBboxes=true;
+
+	/* write back */
+	p->pos=pp.pos;
+	p->ori=pp.ori;
+	p->vel=pp.vel;
+	p->angVel=pp.angVel;
+	p->force=p->torque=(Vec3)0.;
 }
 
 /** This kernel runs only when INT_OUT_OF_BBOX is set **/
