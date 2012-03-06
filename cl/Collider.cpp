@@ -3,8 +3,8 @@
 
 #include<set>
 
-//#define COLL_DBG(a) cerr<<a<<endl
-#define COLL_DBG(a)
+#define COLL_DBG(a) cerr<<a<<endl
+//#define COLL_DBG(a)
 
 namespace clDem{
 
@@ -140,6 +140,7 @@ void CpuCollider::initialStep(){
 	for(size_t i=0; i<scene->arrSize[ARR_CON]; i++){
 		const Contact& c=sim->con[i];
 		if(c.ids.s0<0) continue;
+		cerr<<"Previous contact ##"<<c.ids.s0<<"+"<<c.ids.s1<<endl;
 		add(c.ids.s0,c.ids.s1,ConLoc(i,/*isReal*/true));
 	}
 	clearSimPot();

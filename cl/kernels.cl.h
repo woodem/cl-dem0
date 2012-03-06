@@ -66,7 +66,7 @@ CLDEM_NAMESPACE_END()
 #endif
 
 // if defined, printf's show when contacts are created/deleted
-//#define CON_LOG
+#define CON_LOG
 
 void Scene_energyAdd(global struct Scene* scene, int energyIndex, Real E){
 	//atomic_add(&(scene->energy[energyIndex]),(float)E);
@@ -133,13 +133,13 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	pp.force+=gravity*pp.mass; // put this up here so that grav appears in the force term
 
 	// some translations are allowed, compute gravity contribution
-	if((dofs & par_dofs_trans)!=0) ADD_ENERGY(scene,grav,-dot(gravity,p->vel)*pp.mass*dt);
+	if((dofs & par_dofs_trans)!=0) ADD_ENERGY(scene,grav,-dot(gravity,pp.vel)*pp.mass*dt);
 
 	if((dofs&par_dofs_trans)==par_dofs_trans){ // all translations possible, use vector expr
 		accel+=pp.force/pp.mass;
 	} else {
 		for(int ax=0; ax<3; ax++){
-			if(dofs & dof_axis(ax,false)) ((Real*)(&accel))[ax]+=((global Real*)(&(p->force)))[ax]/p->mass+((global Real*)(&(scene->gravity)))[ax];
+			if(dofs & dof_axis(ax,false)) ((Real*)(&accel))[ax]+=((Real*)(&(pp.force)))[ax]/pp.mass+((Real*)(&(gravity)))[ax];
 			else ((Real*)(&accel))[ax]=0.;
 		}
 	}
@@ -147,16 +147,16 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 		angAccel+=pp.torque/pp.inertia.x;
 	} else {
 		for(int ax=0; ax<3; ax++){
-			if(dofs & dof_axis(ax,true )) ((Real*)(&angAccel))[ax]+=((global Real*)(&p->torque))[ax]/p->inertia.x;
+			if(dofs & dof_axis(ax,true )) ((Real*)(&angAccel))[ax]+=((Real*)(&pp.torque))[ax]/pp.inertia.x;
 			else ((Real*)(&angAccel))[ax]=0.;
 		}
 	}
 #endif
 	#ifdef DUMP_INTEGRATOR
-		if(dofs!=0) printf("$%ld/%d: v=%v3g, ω=%v3g, F=%v3g, T=%v3g, a=%v3g",scene->step,get_global_id(0),p->vel,p->angVel,p->force,p->torque,accel);
+		if(dofs!=0) printf("$%ld/%d: v=%v3g, ω=%v3g, F=%v3g, T=%v3g, a=%v3g",scene->step,get_global_id(0),pp.vel,pp.angVel,pp.force,pp.torque,accel);
 	#endif
 	if(damping!=0){
-		ADD_ENERGY(scene,damp,(dot(fabs(p->vel),fabs(p->force))+dot(fabs(p->angVel),fabs(p->torque)))*damping*dt);
+		ADD_ENERGY(scene,damp,(dot(fabs(pp.vel),fabs(pp.force))+dot(fabs(pp.angVel),fabs(pp.torque)))*damping*dt);
 		accel   =accel   *(1-damping*sign(pp.force *(pp.vel   +accel   *dt/2)));
 		angAccel=angAccel*(1-damping*sign(pp.torque*(pp.angVel+angAccel*dt/2)));
 	}
@@ -170,7 +170,7 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	pp.angVel+=angAccel*dt;
 	pp.pos+=pp.vel*dt;
 	#ifdef DUMP_INTEGRATOR
-		if(dofs!=0) printf(", aDamp=%v3g, vNew=%v3g, posNew=%v3g\n",accel,p->vel,p->pos);
+		if(dofs!=0) printf(", aDamp=%v3g, vNew=%v3g, posNew=%v3g\n",accel,pp.vel,pp.pos);
 	#endif
 	pp.ori=Quat_multQ(Quat_fromRotVec(pp.angVel*dt),pp.ori); // checks automatically whether |rotVec|==0
 	//
@@ -184,14 +184,15 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 		printf("#%ld boxPos=%g\n",get_global_id(0),p->bboxPos.s1);
 		printf("#%ld boxPos=%g\n",get_global_id(0),p->bboxPos.s2);
 	#endif
-	if(verletDist>=0 && (Vec3_sqNorm(pp.pos-pp.bboxPos)>pown(verletDist,2) || isnan(p->bboxPos.s0))) scene->updateBboxes=true;
+	if(verletDist>=0 && (Vec3_sqNorm(pp.pos-pp.bboxPos)>pown(verletDist,2) || isnan(pp.bboxPos.s0))) scene->updateBboxes=true;
 
 	/* write back */
 	p->pos=pp.pos;
 	p->ori=pp.ori;
 	p->vel=pp.vel;
 	p->angVel=pp.angVel;
-	p->force=p->torque=(Vec3)0.;
+	p->force=(Vec3)0.;
+	p->torque=(Vec3)0.;
 }
 
 /** This kernel runs only when INT_OUT_OF_BBOX is set **/

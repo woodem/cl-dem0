@@ -14,12 +14,12 @@ dim=40,40,10
 margin=10
 r=.005
 
-sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION") # -DTRACK_ENERGY")
+sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION ") #-DTRACK_ENERGY")
 
 sim.scene.materials=[clDem.ElastMat(young=1e6,density=1e3)]
 sim.scene.gravity=(-4,-5,-10)
 sim.scene.damping=.4
-sim.scene.verletDist=.5*r # collision detection in this case
+sim.scene.verletDist=.3*r # collision detection in this case
 sim.maxScheduledSteps=10
 
 sim.par.append(clDem.mkWall(pos=(0,0,2*r),axis=2,sim=sim,matId=0))
@@ -53,15 +53,6 @@ clf.sim=sim
 O.scene.fields=[clf]
 nan=float('nan')
 O.scene.loHint=O.scene.hiHint=(nan,nan,nan)
-O.scene.engines=[yade.cld.CLDemRun(stepPeriod=10),]
+O.scene.engines=[yade.cld.CLDemRun(stepPeriod=1),]
 O.scene.ranges=[yade.gl.Gl1_CLDemField.parRange]
 yade.gl.Gl1_CLDemField.bboxes=False
-
-
-#O.step()
-
-if 0:
-	for i in range(0,):
-		sim.run(1)
-		zCoord.append(sim.par[1].pos[2])
-		f1z.append(sim.par[1].force[2])

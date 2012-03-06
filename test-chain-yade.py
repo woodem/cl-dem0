@@ -8,13 +8,13 @@ from math import *
 pNum=int(sys.argv[1]) if len(sys.argv)>1 else -1
 dNum=int(sys.argv[2]) if len(sys.argv)>2 else -1
 
-N=10 # length of chain
+N=5 # length of chain
 supports=[0,9,];
 r=.005
 E=1e4
 rho=1e4
 
-checkEqual=False # write message to the console if position/orientation/uN differs
+checkEqual=True # write message to the console if position/orientation/uN differs
 
 useL1Geom,ktDivKn,charLen,dtFrac=(
 	(True,0,None,.2),
@@ -33,11 +33,12 @@ sim.scene.materials=[clDem.ElastMat(density=rho,young=E)]
 sim.scene.gravity=(0,0,-10)
 sim.scene.damping=.4
 sim.scene.verletDist=.3*r
+cons=[]
 
 for i in range(0,N):
-	sim.par.append(clDem.mkSphere((2*r*i,0,0),r,sim,matId=0,fixed=(i in supports)))
+	sim.par.append(clDem.mkSphere((2*r*i*.99999,0,0),r,sim,matId=0,fixed=(i in supports)))
 	print '#%d, flags=%d'%(i,sim.par[-1].flags)
-	if i>0: sim.con.append(clDem.Contact(ids=(i-1,i)))
+	if i>0: cons.append((i-1,i))
 
 sim.scene.dt=dtFrac*sim.pWaveDt()
 
@@ -57,7 +58,7 @@ def yadeCopy():
 	for p in sim.par:
 		if isinstance(p.shape,_clDem.Sphere):
 			yade.O.dem.par.append(yade.utils.sphere(p.pos,p.shape.radius,material=yadeMat[p.matId],fixed=(p.dofs==0),color=.5 if p.dofs==0 else .3,wire=True))
-	ids1, ids2=[c.ids[0] for c in sim.con],[c.ids[1] for c in sim.con]
+	ids1, ids2=[c[0] for c in cons],[c[1] for c in cons]
 	yade.utils.createContacts(ids1,ids2,[yade.dem.Cg2_Sphere_Sphere_L6Geom()],[yade.dem.Cp2_FrictMat_FrictPhys(ktDivKn=0 if useL1Geom else ktDivKn)]) # .2 is constant in the OpenCL code for this case
 	yade.dem.BoundDispatcher([yade.dem.Bo1_Sphere_Aabb()])() #create bboxes to give hint to OpenGL on displaying particles
 	yade.O.dem.collectNodes()
@@ -78,7 +79,7 @@ def yadeCopy():
 		yade.core.PyRunner('updateFromCL()',1),
 	]+([
 		#check normal displacement difference
-		yade.core.PyRunner('for c in sim.con:\n\tcDem=O.dem.con[c.ids]\n\tduN=abs(c.geom.uN-cDem.geom.uN)\n\tif duN/r>1e-6: print "##%d+%d: ΔuN=%g"%(c.ids[0],c.ids[1],duN)\n\t#print cDem.geom.node.ori*Vector3.UnitX, c.ori.row(0)'),
+		yade.core.PyRunner('for c in sim.con:\n\tif not c: continue\n\tcDem=O.dem.con[c.ids]\n\tduN=abs(c.geom.uN-cDem.geom.uN)\n\tif duN/r>1e-6: print "##%d+%d: ΔuN=%g"%(c.ids[0],c.ids[1],duN)\n\t#print cDem.geom.node.ori*Vector3.UnitX, c.ori.row(0)'),
 		#check position difference
 		yade.core.PyRunner('for i in range(0,len(sim.par)):\n\tdx=(yade.O.dem.par[i].pos-sim.par[i].pos).norm()\n\tif dx/r>1e-5: print "#%d Δx=%g"%(i,dx)'),
 		#check orientation difference
