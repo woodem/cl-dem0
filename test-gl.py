@@ -19,7 +19,7 @@ sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION") # -DTRACK_ENERGY")
 sim.scene.materials=[clDem.ElastMat(young=1e6,density=1e3)]
 sim.scene.gravity=(-4,-5,-10)
 sim.scene.damping=.4
-sim.scene.verletDist=.3*r # collision detection in this case
+sim.scene.verletDist=.5*r # collision detection in this case
 sim.maxScheduledSteps=10
 
 sim.par.append(clDem.mkWall(pos=(0,0,2*r),axis=2,sim=sim,matId=0))

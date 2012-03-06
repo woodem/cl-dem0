@@ -24,6 +24,7 @@ struct Material{
 constant flagSpec mat_flag_matT={MAT_OFF_matT,MAT_LEN_matT};
 #define MATERIAL_FLAG_GET_SET(what) \
 	inline int mat_##what##_get(global const struct Material *m){ return flags_get(m->flags,mat_flag_##what); } \
+	inline int mat_##what##_get_local(const struct Material *m){ return flags_get(m->flags,mat_flag_##what); } \
 	inline void mat_##what##_set(global struct Material *m, int val){ flags_set(&m->flags,mat_flag_##what,val); } \
 	inline void mat_##what##_set_local(struct Material *m, int val){ flags_set_local(&m->flags,mat_flag_##what,val); }
 MATERIAL_FLAG_GET_SET(matT);
@@ -234,21 +235,13 @@ inline long Scene_arr_fromFreeArr_or_append(global struct Scene* scene, global i
 	int ix=-1;
 	for(int i=0; i<scene->arrSize[arrFreeIx]; i++){
 		//printf("Trying arrFree[%d]=%d: ",i,arrFree[i]);
+
+		// optimize: don't xchg values which are already negative
+		if(arrFree[i]<0) continue;
+
 		ix=atom_xchg(&(arrFree[i]),-1); // read old value and reset to -1
 		//printf("%d\n",ix);
-		if(ix>=0){
-			#if 0
-				// in case we just grabbed the last element in arrFree, shrink its size (go to the first valid item)
-				if(shrink && ix==scene->arrSize[arrFreeIx]-1){
-					int last; for(last=ix-1; arrFree[last]<0 && last>=0; last--);
-					if(last<ix-1){
-						printf("Array shrunk %d → %d\n",scene->arrSize[arrFreeIx],last+1);
-						scene->arrSize[arrFreeIx]=last+1;
-					}
-				}
-			#endif
-			return ix;
-		}
+		if(ix>=0){ return ix; }
 	}
 	//printf("Allocating new slot, arrSize %d\n.",scene->arrSize[arrIx]);
 	// no free slot found, allocate a new one; handle possible allocation failure

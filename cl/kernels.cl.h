@@ -229,39 +229,6 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
 	if(id==0) Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE | INT_NOT_DESTRUCTIVE | INT_BBOXES);
 }
 
-void computeL6GeomGeneric(global struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, Real dt){
-	// new contact
-	if(con_geomT_get(c)==0){
-		con_geomT_set(c,Geom_L6Geom); c->geom.l6g=L6Geom_new();
-		c->ori=Mat3_rot_setYZ(normal);
-		c->pos=contPt;
-		c->geom.l6g.uN=uN;
-		return;
-	}
-	Vec3 currNormal=normal;
-	Vec3 prevNormal=Mat3_row(c->ori,0);
-	Vec3 prevContPt=c->pos;
-	Vec3 normRotVec=cross(prevNormal,currNormal);
-	Vec3 midNormal=normalize(.5*(prevNormal+currNormal));
-	Vec3 normTwistVec=midNormal*dt*.5*dot(midNormal,angVel1+angVel2);
-	Vec3 prevOri1=Mat3_row(c->ori,1);
-	Vec3 midOri1=prevOri1-.5*cross(prevOri1,normRotVec+normTwistVec);
-	Mat3 midOri=Mat3_setRows(midNormal,midOri1,cross(midNormal,midOri1));
-	//midOri=Mat3_orthonorm_row0(midOri); // not clear how much difference this one makes
-	Vec3 currOri1=prevOri1-cross(midOri1,normRotVec+normTwistVec);
-	Mat3 currOri=Mat3_setRows(currNormal,currOri1,cross(currNormal,currOri1));
-	currOri=Mat3_orthonorm_row0(currOri);
-	Vec3 midContPt=.5*(prevContPt+contPt), midPos1=pos1-vel1*dt/2., midPos2=pos2-vel2*dt/2.;
-	Vec3 c1x=midContPt-midPos1, c2x=midContPt-midPos2;
-	Vec3 relVel=(vel2+cross(angVel2,c2x))-(vel1+cross(angVel1,c1x));
-	// update contact
-	c->pos=contPt;
-	c->ori=currOri;
-	c->geom.l6g.vel=Mat3_multV(midOri,relVel);
-	c->geom.l6g.angVel=Mat3_multV(midOri,angVel2-angVel1);
-	c->geom.l6g.uN=uN;
-}
-
 kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	const int substep=SUB_checkPotCon;
 	if(Scene_skipKernel(scene,substep)) return;
@@ -337,87 +304,116 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 };
 
 bool Bbox_overlap(global float* _A, global float* _B){
-	#if 1
-		float8 A=vload8(0,_A), B=vload8(0,_B);
-		return
-			A.s0<B.s3 && B.s0<A.s3 && // xMinA<xMaxB && xMinB<xMaxA
-			A.s1<B.s4 && B.s1<A.s4 &&
-			A.s2<B.s5 && B.s2<A.s5;
-	#else
-		return
-			_A[0]<_B[3] && _B[0]<_A[3] && // xMinA<xMaxB && xMinB<xMaxA
-			_A[1]<_B[4] && _B[1]<_A[4] &&
-			_A[2]<_B[5] && _B[2]<_A[5];
-	#endif
+	float8 A=vload8(0,_A), B=vload8(0,_B);
+	return
+		A.s0<B.s3 && B.s0<A.s3 && // xMinA<xMaxB && xMinB<xMaxA
+		A.s1<B.s4 && B.s1<A.s4 &&
+		A.s2<B.s5 && B.s2<A.s5;
 }
+
+void computeL6GeomGeneric(struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, Real dt){
+	// new contact
+	if(con_geomT_get_local(c)==0){
+		con_geomT_set_local(c,Geom_L6Geom); c->geom.l6g=L6Geom_new();
+		c->ori=Mat3_rot_setYZ(normal);
+		c->pos=contPt;
+		c->geom.l6g.uN=uN;
+		return;
+	}
+	Vec3 currNormal=normal;
+	Vec3 prevNormal=Mat3_row(c->ori,0);
+	Vec3 prevContPt=c->pos;
+	Vec3 normRotVec=cross(prevNormal,currNormal);
+	Vec3 midNormal=normalize(.5*(prevNormal+currNormal));
+	Vec3 normTwistVec=midNormal*dt*.5*dot(midNormal,angVel1+angVel2);
+	Vec3 prevOri1=Mat3_row(c->ori,1);
+	Vec3 midOri1=prevOri1-.5*cross(prevOri1,normRotVec+normTwistVec);
+	Mat3 midOri=Mat3_setRows(midNormal,midOri1,cross(midNormal,midOri1));
+	//midOri=Mat3_orthonorm_row0(midOri); // not clear how much difference this one makes
+	Vec3 currOri1=prevOri1-cross(midOri1,normRotVec+normTwistVec);
+	Mat3 currOri=Mat3_setRows(currNormal,currOri1,cross(currNormal,currOri1));
+	currOri=Mat3_orthonorm_row0(currOri);
+	Vec3 midContPt=.5*(prevContPt+contPt), midPos1=pos1-vel1*dt/2., midPos2=pos2-vel2*dt/2.;
+	Vec3 c1x=midContPt-midPos1, c2x=midContPt-midPos2;
+	Vec3 relVel=(vel2+cross(angVel2,c2x))-(vel1+cross(angVel1,c1x));
+	// update contact
+	c->pos=contPt;
+	c->ori=currOri;
+	c->geom.l6g.vel=Mat3_multV(midOri,relVel);
+	c->geom.l6g.angVel=Mat3_multV(midOri,angVel2-angVel1);
+	c->geom.l6g.uN=uN;
+}
+
 
 kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	const int substep=SUB_contCompute;
 	if(Scene_skipKernel(scene,substep)) return;
 	size_t cid=get_global_id(0);
 	if(cid>=scene->arrSize[ARR_CON]) return; // in case we are past real number of contacts
-	global struct Contact *c=&(con[cid]);
-	if(c->ids.s0<0 || c->ids.s1<0) return; // deleted contact
+	struct Contact c=con[cid];
+	if(c.ids.s0<0 || c.ids.s1<0) return; // deleted contact
 	PRINT_TRACE("contCompute_C");
 
+	const Real dt=scene->dt;
+
 	bool contactBroken=false;
-	global const struct Particle* p1=&(par[c->ids.s0]);
-	global const struct Particle* p2=&(par[c->ids.s1]);
-	if(par_shapeT_get(p1)>par_shapeT_get(p2)) printf("ERROR: ##%ld+%ld is not ordered by shape indices: %d+%d\n",c->ids.s0,c->ids.s1,par_shapeT_get(p1),par_shapeT_get(p2));
+	const struct Particle p1=par[c.ids.s0];
+	const struct Particle p2=par[c.ids.s1];
+	if(par_shapeT_get_local(&p1)>par_shapeT_get_local(&p2)) printf("ERROR: ##%ld+%ld is not ordered by shape indices: %d+%d\n",c.ids.s0,c.ids.s1,par_shapeT_get_local(&p1),par_shapeT_get_local(&p2));
 
 	/* create geometry for new contacts */
-	switch(SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2))){
+	switch(SHAPET2_COMBINE(par_shapeT_get_local(&p1),par_shapeT_get_local(&p2))){
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
-			Real r1=p1->shape.sphere.radius, r2=p2->shape.sphere.radius;
-			Real dist=distance(p1->pos,p2->pos);
-			Vec3 normal=(p2->pos-p1->pos)/dist;
+			Real r1=p1.shape.sphere.radius, r2=p2.shape.sphere.radius;
+			Real dist=distance(p1.pos,p2.pos);
+			Vec3 normal=(p2.pos-p1.pos)/dist;
 			Real uN=dist-(r1+r2);
 			#ifdef L6GEOM_BREAK_TENSION
 				if(uN>0) contactBroken=true;
 			#endif
-			Vec3 contPt=p1->pos+(r1+.5*uN)*normal;
-			computeL6GeomGeneric(c,p1->pos,p1->vel,p1->angVel,p2->pos,p2->vel,p2->angVel,normal,contPt,uN,scene->dt);
+			Vec3 contPt=p1.pos+(r1+.5*uN)*normal;
+			computeL6GeomGeneric(&c,p1.pos,p1.vel,p1.angVel,p2.pos,p2.vel,p2.angVel,normal,contPt,uN,dt);
 			break;
 		}
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Wall):{
-			short axis=p2->shape.wall.axis, sense=p2->shape.wall.sense;
+			short axis=p2.shape.wall.axis, sense=p2.shape.wall.sense;
 			// coordinates along wall normal axis
-			Real cS=((global Real*)(&p1->pos))[axis], cW=((global Real*)(&p2->pos))[axis]; 
+			Real cS=((Real*)&p1.pos)[axis], cW=((Real*)&p2.pos)[axis]; 
 			Real signedDist=cW-cS;
 			Vec3 normal=(Vec3)0.;
 			// if sense==0, the normal is oriented from the wall towards the sphere's center
 			if(sense==0) ((Real*)&normal)[axis]=signedDist>0?1.:-1.;
 			// else it is always oriented either along +axis or -axis
 			else ((Real*)&normal)[axis]=(sense>0?-1.:1.);
-			Real uN=((Real*)&normal)[axis]*signedDist-p1->shape.sphere.radius;
+			Real uN=((Real*)&normal)[axis]*signedDist-p1.shape.sphere.radius;
 			//printf("uN=%g, normal=%v3g, signedDist=%g, radius=%g\n",uN,normal,signedDist,p1->shape.sphere.radius);
 			#ifdef L6GEOM_BREAK_TENSION
 				if(uN>0) contactBroken=true;
 			#endif
 			// project sphere onto the wall
-			Vec3 contPt=p1->pos; ((Real*)(&contPt))[axis]=((global Real*)&p2->pos)[axis];
-			computeL6GeomGeneric(c,p1->pos,p1->vel,p1->angVel,p2->pos,p2->vel,p2->angVel,normal,contPt,uN,scene->dt);
+			Vec3 contPt=p1.pos; ((Real*)(&contPt))[axis]=((Real*)&p2.pos)[axis];
+			computeL6GeomGeneric(&c,p1.pos,p1.vel,p1.angVel,p2.pos,p2.vel,p2.angVel,normal,contPt,uN,dt);
 			break;
 		}
-		default: printf("ERROR: ##%ld+%ld has unknown shape index combination %d+%d",c->ids.s0,c->ids.s1,par_shapeT_get(p1),par_shapeT_get(p2));
+		default: printf("ERROR: ##%ld+%ld has unknown shape index combination %d+%d",c.ids.s0,c.ids.s1,par_shapeT_get_local(&p1),par_shapeT_get_local(&p2));
 	}
 	/* update physical params: only if there are no physical params yet */
-	if(!contactBroken && con_physT_get(c)==0){
-		int matId1=par_matId_get(p1), matId2=par_matId_get(p2);
-		global const struct Material* m1=&(scene->materials[matId1]);
-		global const struct Material* m2=&(scene->materials[matId2]);
-		int matT1=mat_matT_get(m1), matT2=mat_matT_get(m2);
+	if(!contactBroken && con_physT_get_local(&c)==0){
+		int matId1=par_matId_get_local(&p1), matId2=par_matId_get_local(&p2);
+		const struct Material m1=scene->materials[matId1];
+		const struct Material m2=scene->materials[matId2];
+		int matT1=mat_matT_get_local(&m1), matT2=mat_matT_get_local(&m2);
 		switch(MATT2_COMBINE(matT1,matT2)){
 			case MATT2_COMBINE(Mat_ElastMat,Mat_ElastMat):{
-				c->phys.normPhys=NormPhys_new();
-				con_physT_set(c,Phys_NormPhys);
+				c.phys.normPhys=NormPhys_new();
+				con_physT_set_local(&c,Phys_NormPhys);
 				/* fixme: d1 should depend on current distance, only indirectly on radius */
-				Real r1=(par_shapeT_get(p1)==Shape_Sphere?p1->shape.sphere.radius:INFINITY);
-				Real r2=(par_shapeT_get(p2)==Shape_Sphere?p2->shape.sphere.radius:INFINITY);
-				Real d1=(par_shapeT_get(p1)==Shape_Sphere?p1->shape.sphere.radius:0);
-				Real d2=(par_shapeT_get(p1)==Shape_Sphere?p2->shape.sphere.radius:0);
+				Real r1=(par_shapeT_get_local(&p1)==Shape_Sphere?p1.shape.sphere.radius:INFINITY);
+				Real r2=(par_shapeT_get_local(&p2)==Shape_Sphere?p2.shape.sphere.radius:INFINITY);
+				Real d1=(par_shapeT_get_local(&p1)==Shape_Sphere?p1.shape.sphere.radius:0);
+				Real d2=(par_shapeT_get_local(&p1)==Shape_Sphere?p2.shape.sphere.radius:0);
 				Real A=M_PI*min(r1,r2)*min(r1,r2);
-				c->phys.normPhys.kN=1./(d1/(A*m1->mat.elast.young)+d2/(A*m2->mat.elast.young));
+				c.phys.normPhys.kN=1./(d1/(A*m1.mat.elast.young)+d2/(A*m2.mat.elast.young));
 				// printf("d1=%f, d2=%f, A=%f, E1=%f, E2=%f, kN=%f\n",d1,d2,A,m1->mat.elast.young,m2->mat.elast.young,c->phys.normPhys.kN);
 				break;
 			}
@@ -426,11 +422,11 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	}
 	/* contact law */
 	if(!contactBroken){
-		int geomT=con_geomT_get(c), physT=con_physT_get(c);
+		int geomT=con_geomT_get_local(&c), physT=con_physT_get_local(&c);
 		switch(GEOMT_PHYST_COMBINE(geomT,physT)){
 			case GEOMT_PHYST_COMBINE(Geom_L1Geom,Phys_NormPhys):
-				c->force=(Vec3)(c->geom.l1g.uN*c->phys.normPhys.kN,0,0);
-				c->torque=(Vec3)0.;
+				c.force=(Vec3)(c.geom.l1g.uN*c.phys.normPhys.kN,0,0);
+				c.torque=(Vec3)0.;
 				break;
 			case GEOMT_PHYST_COMBINE(Geom_L6Geom,Phys_NormPhys):{
 				#ifndef BEND_CHARLEN
@@ -443,29 +439,31 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 				Real charLen=BEND_CHARLEN;
 				const Real ktDivKn=SHEAR_KT_DIV_KN;
 				// ]
-				Vec3 kntt=(Vec3)(c->phys.normPhys.kN,c->phys.normPhys.kN*ktDivKn,c->phys.normPhys.kN*ktDivKn);
+				Vec3 kntt=(Vec3)(c.phys.normPhys.kN,c.phys.normPhys.kN*ktDivKn,c.phys.normPhys.kN*ktDivKn);
 				Vec3 ktbb=kntt/charLen;
-				c->force+=scene->dt*c->geom.l6g.vel*kntt;
-				c->torque+=scene->dt*c->geom.l6g.angVel*ktbb;
-				((global Real*)&(c->force))[0]=c->phys.normPhys.kN*c->geom.l6g.uN; // set this one directly
+				c.force+=dt*c.geom.l6g.vel*kntt;
+				c.torque+=dt*c.geom.l6g.angVel*ktbb;
+				((Real*)&(c.force))[0]=c.phys.normPhys.kN*c.geom.l6g.uN; // set this one directly
 				#ifdef TRACK_ENERGY
-					Real E=.5*pown(c->force.s0,2)/kntt.s0;  // normal stiffness is always non-zero
-					if(kntt.s1!=0.) E+=.5*dot(c->force.s12,c->force.s12/kntt.s12);
-					if(ktbb.s0!=0.) E+=.5*pown(c->torque.s0,2)/ktbb.s0;
-					if(ktbb.s1!=0.) E+=.5*dot(c->torque.s12,c->torque.s12/ktbb.s12);
+					Real E=.5*pown(c.force.s0,2)/kntt.s0;  // normal stiffness is always non-zero
+					if(kntt.s1!=0.) E+=.5*dot(c.force.s12,c.force.s12/kntt.s12);
+					if(ktbb.s0!=0.) E+=.5*pown(c.torque.s0,2)/ktbb.s0;
+					if(ktbb.s1!=0.) E+=.5*dot(c.torque.s12,c.torque.s12/ktbb.s12);
 					ADD_ENERGY(scene,elast,E);
 					// gives NaN when some stiffness is 0
-					// ADD_ENERGY(scene,elast,.5*dot(c->force,c->force/kntt)+.5*dot(c->torque,c->torque/ktbb));
+					// ADD_ENERGY(scene,elast,.5*dot(c.force,c.force/kntt)+.5*dot(c.torque,c.torque/ktbb));
 				#endif
 				break;
 			}
 			default: /* error */ ;
 		}
-	}
+		// wrice contact back to global mem
+		con[cid]=c;
+	} 
 
 	if(contactBroken){
 		#ifdef CON_LOG
-			printf("Breaking ##%ld+%ld\n",c->ids.s0,c->ids.s1);
+			printf("Breaking ##%ld+%ld\n",c.ids.s0,c.ids.s1);
 		#endif
 		// append contact to conFree (with possible allocation failure)
 		// if there is still bbox overlap, append to pot
@@ -477,19 +475,19 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 		conFree[ixConFree]=cid;
 		if(ixCJournal<0){ Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
 		// if there is overlap, put back to potential contacts
-		//printf("bboxes (%v3g)--(%v3g)  (%v3g)--(%v3g)\n",(Vec3)(bboxes[6*c->ids.s0],bboxes[6*c->ids.s0+1],bboxes[6*c->ids.s0+2]),(Vec3)(bboxes[6*c->ids.s0+3],bboxes[6*c->ids.s0+4],bboxes[6*c->ids.s0+5]),(Vec3)(bboxes[6*c->ids.s1],bboxes[6*c->ids.s1+1],bboxes[6*c->ids.s1+2]),(Vec3)(bboxes[6*c->ids.s1+3],bboxes[6*c->ids.s1+4],bboxes[6*c->ids.s1+5]));
-		if(Bbox_overlap(&(bboxes[6*c->ids.s0]),&(bboxes[6*c->ids.s1]))){
+		//printf("bboxes (%v3g)--(%v3g)  (%v3g)--(%v3g)\n",(Vec3)(bboxes[6*c.ids.s0],bboxes[6*c.ids.s0+1],bboxes[6*c.ids.s0+2]),(Vec3)(bboxes[6*c.ids.s0+3],bboxes[6*c.ids.s0+4],bboxes[6*c.ids.s0+5]),(Vec3)(bboxes[6*c.ids.s1],bboxes[6*c.ids.s1+1],bboxes[6*c.ids.s1+2]),(Vec3)(bboxes[6*c.ids.s1+3],bboxes[6*c.ids.s1+4],bboxes[6*c.ids.s1+5]));
+		if(Bbox_overlap(&(bboxes[6*c.ids.s0]),&(bboxes[6*c.ids.s1]))){
 			int ixPot=Scene_arr_fromFreeArr_or_append(scene,potFree,ARR_POTFREE,ARR_POT,/*shrink*/true);
 			if(ixPot<0){ Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
-			pot[ixPot]=c->ids;
+			pot[ixPot]=c.ids;
 			// write to the log
-			cJournal[ixCJournal].ids=c->ids; cJournal[ixCJournal].index=ixPot; cJournal[ixCJournal].what=CJOURNAL_CON2POT;
+			cJournal[ixCJournal].ids=c.ids; cJournal[ixCJournal].index=ixPot; cJournal[ixCJournal].what=CJOURNAL_CON2POT;
 		} else {
 			// write to the log
-			cJournal[ixCJournal].ids=c->ids; cJournal[ixCJournal].index=-1; cJournal[ixCJournal].what=CJOURNAL_CON_DEL; 
+			cJournal[ixCJournal].ids=c.ids; cJournal[ixCJournal].index=-1; cJournal[ixCJournal].what=CJOURNAL_CON_DEL; 
 		}
 		// delete
-		Contact_init(c); // or just set ids=(-1,-1)?
+		Contact_init(&con[cid]); // or just set ids=(-1,-1)?
 	}
 }
 
@@ -500,14 +498,14 @@ kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST){
 	PRINT_TRACE("forcesToParticle_C");
 
 	/* how to synchronize access to particles? */
-	global const struct Contact* c=&(con[get_global_id(0)]);
-	if(con_geomT_get(c)==0) return;
-	global struct Particle *p1=&(par[c->ids.x]), *p2=&(par[c->ids.y]);
-	Mat3 R_T=Mat3_transpose(c->ori);
-	Vec3 Fp1=+Mat3_multV(R_T,c->force);
-	Vec3 Fp2=-Mat3_multV(R_T,c->force);
-	Vec3 Tp1=+cross(c->pos-p1->pos,Mat3_multV(R_T,c->force))+Mat3_multV(R_T,c->torque);
-	Vec3 Tp2=-cross(c->pos-p2->pos,Mat3_multV(R_T,c->force))-Mat3_multV(R_T,c->torque);
+	const struct Contact c=con[get_global_id(0)];
+	if(con_geomT_get_local(&c)==0) return;
+	global struct Particle *p1=&(par[c.ids.x]), *p2=&(par[c.ids.y]);
+	Mat3 R_T=Mat3_transpose(c.ori);
+	Vec3 Fp1=+Mat3_multV(R_T,c.force);
+	Vec3 Fp2=-Mat3_multV(R_T,c.force);
+	Vec3 Tp1=+cross(c.pos-p1->pos,Mat3_multV(R_T,c.force))+Mat3_multV(R_T,c.torque);
+	Vec3 Tp2=-cross(c.pos-p2->pos,Mat3_multV(R_T,c.force))-Mat3_multV(R_T,c.torque);
 	LOCK(&p1->mutex);
 		p1->force+=Fp1; p1->torque+=Tp1;
 	UNLOCK(&p1->mutex);
