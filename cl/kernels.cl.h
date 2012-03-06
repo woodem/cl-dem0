@@ -203,21 +203,22 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
 
 	par_id_t id=get_global_id(0);
 	global struct Particle *p=&par[id];
+	struct Particle pp=*p;
 	Vec3 mn, mx;
-	switch(par_shapeT_get(p)){
+	switch(par_shapeT_get_local(&pp)){
 		case Shape_Sphere:
-			mn=p->pos-(Vec3)(p->shape.sphere.radius);
-			mx=p->pos+(Vec3)(p->shape.sphere.radius);
+			mn=pp.pos-(Vec3)(pp.shape.sphere.radius);
+			mx=pp.pos+(Vec3)(pp.shape.sphere.radius);
 			break;
 		case Shape_Wall:
 			mn=(Vec3)-INFINITY; mx=(Vec3)INFINITY;
-			if(p->shape.wall.axis==0) mn.s0=mx.s0=p->pos.s0;
-			else if(p->shape.wall.axis==1) mn.s1=mx.s1=p->pos.s1;
-			else if(p->shape.wall.axis==2) mn.s2=mx.s2=p->pos.s2;
-			else /* error */ printf("ERROR: #%ld is a wall with axis=%d!\n",id,p->shape.wall.axis);
+			if(pp.shape.wall.axis==0) mn.s0=mx.s0=p->pos.s0;
+			else if(pp.shape.wall.axis==1) mn.s1=mx.s1=p->pos.s1;
+			else if(pp.shape.wall.axis==2) mn.s2=mx.s2=p->pos.s2;
+			else /* error */ printf("ERROR: #%ld is a wall with axis=%d!\n",id,pp.shape.wall.axis);
 		default: /* */;
 	}
-	p->bboxPos=p->pos;
+	p->bboxPos=pp.pos;
 	mn-=(Vec3)scene->verletDist;
 	mx+=(Vec3)scene->verletDist;
 	bboxes[id*6+0]=mn.x; bboxes[id*6+1]=mn.y; bboxes[id*6+2]=mn.z;
@@ -274,22 +275,22 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	int flip=par_shapeT_get(&par[ids.s0])>par_shapeT_get(&par[ids.s1]);
 	if(flip) ids=(par_id2_t)(ids.s1,ids.s0);
 
-	global const struct Particle* p1=&(par[ids.s0]);
-	global const struct Particle* p2=&(par[ids.s1]);
-	switch(SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2))){
+	const struct Particle p1=par[ids.s0];
+	const struct Particle p2=par[ids.s1];
+	switch(SHAPET2_COMBINE(par_shapeT_get_local(&p1),par_shapeT_get_local(&p2))){
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
-			Real r1=p1->shape.sphere.radius, r2=p2->shape.sphere.radius;
-			if(distance(p1->pos,p2->pos)>=r1+r2){
+			Real r1=p1.shape.sphere.radius, r2=p2.shape.sphere.radius;
+			if(distance(p1.pos,p2.pos)>=r1+r2){
 				// printf("pot ##%d+%d: distance %g.\n",(int)ids.s0,(int)ids.s1,distance(p1->pos,p2->pos)-(r1+r2));
 				return;
 			}
 			break;
 		}
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Wall):{
-			if(fabs(((global Real*)(&(p1->pos)))[p2->shape.wall.axis]-((global Real*)(&(p2->pos)))[p2->shape.wall.axis])>=p1->shape.sphere.radius) return;
+			if(fabs(((Real*)(&(p1.pos)))[p2.shape.wall.axis]-((Real*)(&(p2.pos)))[p2.shape.wall.axis])>=p1.shape.sphere.radius) return;
 			break;
 		}
-		default: printf("ERROR: Invalid shape indices in pot ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, sphere+wall=%d)!\n",ids.s0,ids.s1,par_shapeT_get(p1),par_shapeT_get(p2),SHAPET2_COMBINE(par_shapeT_get(p1),par_shapeT_get(p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall)); return;
+		default: printf("ERROR: Invalid shape indices in pot ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, sphere+wall=%d)!\n",ids.s0,ids.s1,par_shapeT_get_local(&p1),par_shapeT_get_local(&p2),SHAPET2_COMBINE(par_shapeT_get_local(&p1),par_shapeT_get_local(&p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall)); return;
 	};
 	#ifdef CON_LOG
 		printf("Creating ##%ld+%ld\n",ids.s0,ids.s1);
@@ -325,15 +326,29 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 
 	// add the change to cJournal
 	if(ixCJournal<0){ Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
-	CJournalItem_init(&(cJournal[ixCJournal]));
-	cJournal[ixCJournal].ids=ids; cJournal[ixCJournal].index=ixCon; cJournal[ixCJournal].what=CJOURNAL_POT2CON;
+
+	struct CJournalItem i; i.ids=ids; i.index=ixCon; i.what=CJOURNAL_POT2CON;
+	cJournal[ixCJournal]=i;
+
+	#if 0
+		CJournalItem_init(&(cJournal[ixCJournal]));
+		cJournal[ixCJournal].ids=ids; cJournal[ixCJournal].index=ixCon; cJournal[ixCJournal].what=CJOURNAL_POT2CON;
+	#endif
 };
 
-bool Bbox_overlap(global float* A, global float* B){
-	return
-		A[0]<B[3] && B[0]<A[3] && // xMinA<xMaxB && xMinB<xMaxA
-		A[1]<B[4] && B[1]<A[4] &&
-		A[2]<B[5] && B[2]<A[5];
+bool Bbox_overlap(global float* _A, global float* _B){
+	#if 1
+		float8 A=vload8(0,_A), B=vload8(0,_B);
+		return
+			A.s0<B.s3 && B.s0<A.s3 && // xMinA<xMaxB && xMinB<xMaxA
+			A.s1<B.s4 && B.s1<A.s4 &&
+			A.s2<B.s5 && B.s2<A.s5;
+	#else
+		return
+			_A[0]<_B[3] && _B[0]<_A[3] && // xMinA<xMaxB && xMinB<xMaxA
+			_A[1]<_B[4] && _B[1]<_A[4] &&
+			_A[2]<_B[5] && _B[2]<_A[5];
+	#endif
 }
 
 kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
