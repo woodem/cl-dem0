@@ -3,8 +3,8 @@
 
 #include<set>
 
-#define COLL_DBG(a) cerr<<a<<endl
-//#define COLL_DBG(a)
+//#define COLL_DBG(a) cerr<<a<<endl
+#define COLL_DBG(a)
 
 namespace clDem{
 

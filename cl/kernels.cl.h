@@ -66,7 +66,7 @@ CLDEM_NAMESPACE_END()
 #endif
 
 // if defined, printf's show when contacts are created/deleted
-#define CON_LOG
+// #define CON_LOG
 
 void Scene_energyAdd(global struct Scene* scene, int energyIndex, Real E){
 	//atomic_add(&(scene->energy[energyIndex]),(float)E);
