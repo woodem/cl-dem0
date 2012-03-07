@@ -20,7 +20,8 @@ struct Wall{
 	#endif
 };
 
-enum _shape_enum { Shape_None=0, Shape_Sphere, Shape_Wall };
+// Sphere should come at the end
+enum _shape_enum { Shape_None=0, Shape_Wall, Shape_Sphere };
 
 
 struct Particle;

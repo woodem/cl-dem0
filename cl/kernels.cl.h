@@ -254,8 +254,8 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 			}
 			break;
 		}
-		case SHAPET2_COMBINE(Shape_Sphere,Shape_Wall):{
-			if(fabs(((Real*)(&(p1.pos)))[p2.shape.wall.axis]-((Real*)(&(p2.pos)))[p2.shape.wall.axis])>=p1.shape.sphere.radius) return;
+		case SHAPET2_COMBINE(Shape_Wall,Shape_Sphere):{
+			if(fabs(((Real*)(&(p2.pos)))[p1.shape.wall.axis]-((Real*)(&(p1.pos)))[p1.shape.wall.axis])>=p2.shape.sphere.radius) return;
 			break;
 		}
 		default: printf("ERROR: Invalid shape indices in pot ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, sphere+wall=%d)!\n",ids.s0,ids.s1,par_shapeT_get_local(&p1),par_shapeT_get_local(&p2),SHAPET2_COMBINE(par_shapeT_get_local(&p1),par_shapeT_get_local(&p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall)); return;
@@ -317,6 +317,9 @@ void computeL6GeomGeneric(struct Contact* c, const Vec3 pos1, const Vec3 vel1, c
 	if(con_geomT_get_local(c)==0){
 		con_geomT_set_local(c,Geom_L6Geom); c->geom.l6g=L6Geom_new();
 		c->ori=Mat3_rot_setYZ(normal);
+		printf("$$ X=%v3g, |x1|=%g, |x2|=%g, Y=%v3g\n",Mat3_row(c->ori,0),Mat3_row(c->ori,0).s1,Mat3_row(c->ori,0).s2,Mat3_row(c->ori,1));
+		Mat3 mm=Mat3_setRows((Vec3)(1,2,3),(Vec3)(4,5,6),(Vec3)(7,8,9));
+		//printf("row0=%v3g, row1=%v3g, row1=%v3g\n",Mat3_row(mm,0),Mat3_row(mm,1),Mat3_row(mm,2));
 		c->pos=contPt;
 		c->geom.l6g.uN=uN;
 		return;
@@ -356,13 +359,16 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	PRINT_TRACE("contCompute_C");
 
 	const Real dt=scene->dt;
+	// assigned by the geom part, consumed by the phys part; needed for new contacts only
+	double2 physLengths; 
+	double physArea;
 
 	bool contactBroken=false;
 	const struct Particle p1=par[c.ids.s0];
 	const struct Particle p2=par[c.ids.s1];
 	if(par_shapeT_get_local(&p1)>par_shapeT_get_local(&p2)) printf("ERROR: ##%ld+%ld is not ordered by shape indices: %d+%d\n",c.ids.s0,c.ids.s1,par_shapeT_get_local(&p1),par_shapeT_get_local(&p2));
 
-	/* create geometry for new contacts */
+	/* update geometry, or create new */
 	switch(SHAPET2_COMBINE(par_shapeT_get_local(&p1),par_shapeT_get_local(&p2))){
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
 			Real r1=p1.shape.sphere.radius, r2=p2.shape.sphere.radius;
@@ -374,26 +380,31 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 			#endif
 			Vec3 contPt=p1.pos+(r1+.5*uN)*normal;
 			computeL6GeomGeneric(&c,p1.pos,p1.vel,p1.angVel,p2.pos,p2.vel,p2.angVel,normal,contPt,uN,dt);
+			physLengths=(double2)(r1+.5*uN,r2+.5*uN);
+			physArea=M_PI*pown(min(r1,r2),2);
 			break;
 		}
-		case SHAPET2_COMBINE(Shape_Sphere,Shape_Wall):{
-			short axis=p2.shape.wall.axis, sense=p2.shape.wall.sense;
+		case SHAPET2_COMBINE(Shape_Wall,Shape_Sphere):{
+			short axis=p1.shape.wall.axis, sense=p1.shape.wall.sense;
 			// coordinates along wall normal axis
-			Real cS=((Real*)&p1.pos)[axis], cW=((Real*)&p2.pos)[axis]; 
-			Real signedDist=cW-cS;
+			Real cS=((Real*)&p2.pos)[axis], cW=((Real*)&p1.pos)[axis]; 
+			Real signedDist=cS-cW;
 			Vec3 normal=(Vec3)0.;
 			// if sense==0, the normal is oriented from the wall towards the sphere's center
 			if(sense==0) ((Real*)&normal)[axis]=signedDist>0?1.:-1.;
 			// else it is always oriented either along +axis or -axis
-			else ((Real*)&normal)[axis]=(sense>0?-1.:1.);
-			Real uN=((Real*)&normal)[axis]*signedDist-p1.shape.sphere.radius;
+			else ((Real*)&normal)[axis]=(sense>0?1.:-1.);
+			Real uN=((Real*)&normal)[axis]*signedDist-p2.shape.sphere.radius;
 			//printf("uN=%g, normal=%v3g, signedDist=%g, radius=%g\n",uN,normal,signedDist,p1->shape.sphere.radius);
 			#ifdef L6GEOM_BREAK_TENSION
 				if(uN>0) contactBroken=true;
 			#endif
 			// project sphere onto the wall
-			Vec3 contPt=p1.pos; ((Real*)(&contPt))[axis]=((Real*)&p2.pos)[axis];
+			Vec3 contPt=p2.pos; ((Real*)(&contPt))[axis]=((Real*)&p1.pos)[axis];
 			computeL6GeomGeneric(&c,p1.pos,p1.vel,p1.angVel,p2.pos,p2.vel,p2.angVel,normal,contPt,uN,dt);
+			physLengths=(double2)p2.shape.sphere.radius+.5*uN; // both according to the sphere
+			physArea=M_PI*pown(p2.shape.sphere.radius,2);
+			printf("contPt=%v3g\n",c.pos);
 			break;
 		}
 		default: printf("ERROR: ##%ld+%ld has unknown shape index combination %d+%d",c.ids.s0,c.ids.s1,par_shapeT_get_local(&p1),par_shapeT_get_local(&p2));
@@ -408,13 +419,7 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 			case MATT2_COMBINE(Mat_ElastMat,Mat_ElastMat):{
 				c.phys.normPhys=NormPhys_new();
 				con_physT_set_local(&c,Phys_NormPhys);
-				/* fixme: d1 should depend on current distance, only indirectly on radius */
-				Real r1=(par_shapeT_get_local(&p1)==Shape_Sphere?p1.shape.sphere.radius:INFINITY);
-				Real r2=(par_shapeT_get_local(&p2)==Shape_Sphere?p2.shape.sphere.radius:INFINITY);
-				Real d1=(par_shapeT_get_local(&p1)==Shape_Sphere?p1.shape.sphere.radius:0);
-				Real d2=(par_shapeT_get_local(&p1)==Shape_Sphere?p2.shape.sphere.radius:0);
-				Real A=M_PI*min(r1,r2)*min(r1,r2);
-				c.phys.normPhys.kN=1./(d1/(A*m1.mat.elast.young)+d2/(A*m2.mat.elast.young));
+				c.phys.normPhys.kN=1./(physLengths.s0/(physArea*m1.mat.elast.young)+physLengths.s1/(physArea*m2.mat.elast.young));
 				// printf("d1=%f, d2=%f, A=%f, E1=%f, E2=%f, kN=%f\n",d1,d2,A,m1->mat.elast.young,m2->mat.elast.young,c->phys.normPhys.kN);
 				break;
 			}

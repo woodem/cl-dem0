@@ -41,6 +41,11 @@ for i in range(0,N):
 	if i>0: cons.append((i-1,i))
 
 sim.scene.dt=dtFrac*sim.pWaveDt()
+yade.O.scene.dt=sim.scene.dt
+
+demField=yade.dem.DemField()
+clField=yade.cld.CLDemField(sim)
+yade.O.scene.fields=[demField,clField]
 
 clDem.briefOutput()
 sim.show()
@@ -52,64 +57,32 @@ def yadeCopy():
 	yadeMat=[]
 	for m in sim.scene.materials:
 		if isinstance(m,_clDem.ElastMat):
-			yadeMat.append(yade.dem.FrictMat(young=m.young,density=m.density,tanPhi=0))
+			yadeMat.append(yade.dem.FrictMat(young=m.young,density=m.density,tanPhi=float('inf')))
 		else: yadeMat.append(None)
 	# copy particles
 	for p in sim.par:
 		if isinstance(p.shape,_clDem.Sphere):
 			yade.O.dem.par.append(yade.utils.sphere(p.pos,p.shape.radius,material=yadeMat[p.matId],fixed=(p.dofs==0),color=.5 if p.dofs==0 else .3,wire=True))
-	ids1, ids2=[c[0] for c in cons],[c[1] for c in cons]
-	yade.utils.createContacts(ids1,ids2,[yade.dem.Cg2_Sphere_Sphere_L6Geom()],[yade.dem.Cp2_FrictMat_FrictPhys(ktDivKn=0 if useL1Geom else ktDivKn)]) # .2 is constant in the OpenCL code for this case
-	yade.dem.BoundDispatcher([yade.dem.Bo1_Sphere_Aabb()])() #create bboxes to give hint to OpenGL on displaying particles
+		elif isinstance(p.shape,_clDem.Wall):
+			yade.O.dem.par.append(yade.utils.wall(p.pos,p.shape.axis,material=yadeMat[p.matId],fixed=(p.dofs==0),color=.5 if p.dofs==0 else .3,wire=True))
+	# copy contacts
+	#ids1, ids2=[c[0] for c in cons],[c[1] for c in cons]
+	#yade.utils.createContacts(ids1,ids2,[yade.dem.Cg2_Sphere_Sphere_L6Geom()],[yade.dem.Cp2_FrictMat_FrictPhys()])
 	yade.O.dem.collectNodes()
-	yade.O.dem.par.append([yade.utils.sphere(p.pos,p.shape.radius,material=yadeMat[p.matId],fixed=True,color=1 if p.dofs==0 else .8) for p in sim.par]) # add particles from OpenCL; will not be moved by the integrator
-	for i in range(0,len(sim.par)): yade.O.dem.par[len(sim.par)+i].shape.nodes[0].dem.energySkip=True
 	yade.O.scene.dt=sim.scene.dt
 	yade.O.scene.trackEnergy=True
 	yade.O.scene.engines=[
-		# restore OpenCL sim after reload
-		yade.core.PyRunner('if O.scene.step==0: resetCL()'),
-		yade.core.PyRunner('sim.scene.dt=O.scene.dt'), # adjust in case it changes meanwhile
-		yade.dem.Gravity(gravity=(sim.scene.gravity)),
-		yade.dem.Leapfrog(damping=sim.scene.damping,reset=True,kinSplit=True),
-		yade.dem.ContactLoop([yade.dem.Cg2_Sphere_Sphere_L6Geom()],[yade.dem.Cp2_FrictMat_FrictPhys()],[yade.dem.Law2_L6Geom_FrictPhys_LinEl6(charLen=float('inf') if (useL1Geom or not charLen) else charLen)]),
-		yade.dem.IntraForce([yade.dem.In2_Sphere_ElastMat()]),
-		yade.core.PyRunner('sim.run(1)',1), # run the OpenCL code
-		# copy the visible stuff into DEM
-		yade.core.PyRunner('updateFromCL()',1),
-	]+([
-		#check normal displacement difference
-		yade.core.PyRunner('for c in sim.con:\n\tif not c: continue\n\tcDem=O.dem.con[c.ids]\n\tduN=abs(c.geom.uN-cDem.geom.uN)\n\tif duN/r>1e-6: print "##%d+%d: ΔuN=%g"%(c.ids[0],c.ids[1],duN)\n\t#print cDem.geom.node.ori*Vector3.UnitX, c.ori.row(0)'),
-		#check position difference
-		yade.core.PyRunner('for i in range(0,len(sim.par)):\n\tdx=(yade.O.dem.par[i].pos-sim.par[i].pos).norm()\n\tif dx/r>1e-5: print "#%d Δx=%g"%(i,dx)'),
-		#check orientation difference
-		yade.core.PyRunner('for i in range(0,len(sim.par)):\n\tdo=(yade.O.dem.par[i].ori-sim.par[i].ori).norm()\n\tif do>1e-5: print "#%d Δori=%g"%(i,do)'),
-	] if checkEqual else [])+[
-		#yade.core.PyRunner('for c in yade.O.dem.con: print "* ##%d+%d: uN=%g, fN=%g"%(c.id1,c.id2,c.geom.uN,c.phys.force[0])'),
-		#yade.core.PyRunner('for c in sim.con: print "$ ##%d+%d: uN=%g, fN=%g"%(c.ids[0],c.ids[1],c.geom.uN,c.force[0])'),
-		yade.core.PyRunner('showEnergies()',100), #print "$E:",sim.scene.energy,sim.scene.energyTotal(),sim.scene.energyError()\nprint "*E:",dict(O.scene.energy),O.scene.energy.total(),O.scene.energy.relErr()'),
+		yade.dem.Gravity(gravity=(sim.scene.gravity),field=demField),
+		yade.dem.Leapfrog(damping=sim.scene.damping,reset=True,kinSplit=True,field=demField),
+		yade.dem.InsertionSortCollider([yade.dem.Bo1_Sphere_Aabb()],field=demField),
+		yade.dem.ContactLoop([yade.dem.Cg2_Sphere_Sphere_L6Geom()],[yade.dem.Cp2_FrictMat_FrictPhys(ktDivKn=ktDivKn)],[yade.dem.Law2_L6Geom_FrictPhys_LinEl6(charLen=float('inf') if (useL1Geom or not charLen) else charLen)],field=demField),
+		yade.dem.IntraForce([yade.dem.In2_Sphere_ElastMat()],field=demField),
+		yade.cld.CLDemRun(stepPeriod=1,compare=True,relTol=1e-4,field=clField),
+		#yade.core.PyRunner('showEnergies()',100),
 	]
-	O.saveTmp()
-	#yade.qt.Inspector()
 	yade.qt.View()
-	yade.qt.Renderer().bound=True
+	#yade.qt.Renderer().bound=True
 	yade.qt.Controller()
-
-def resetCL():
-	assert(O.scene.step==0)
-	for i in range(0,len(sim.par)):
-		pcl,py=sim.par[i],O.dem.par[i+len(sim.par)]
-		pcl.pos,pcl.ori,pcl.vel,pcl.angVel=py.pos,py.ori,py.vel,py.angVel
-	for c in sim.con: c.geom,c.phys=None,None
-	for p in O.dem.par: p.shape.bound=None
-	sim.scene.energyReset()
-
-def updateFromCL():
-	for i in range(0,len(sim.par)):
-		py,pcl=yade.O.dem.par[i+len(sim.par)],sim.par[i]
-		py.pos,py.ori=pcl.pos,pcl.ori
-		bbox=sim.getBbox(i)
-		py.shape.bound=yade.dem.Aabb(min=bbox[0],max=bbox[1])
 
 def showEnergies():
 	print '$/* Σ = %g / %g, ε = %g / %g'%(sim.scene.energyTotal(),O.scene.energy.total(),sim.scene.energyError(),O.scene.energy.relErr())

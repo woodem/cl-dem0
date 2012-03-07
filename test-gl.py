@@ -13,8 +13,9 @@ dNum=int(sys.argv[2]) if len(sys.argv)>2 else -1
 dim=40,40,10
 margin=10
 r=.005
+ktDivKn=.2
 
-sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION ") #-DTRACK_ENERGY")
+sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION -DSHEAR_KT_DIV_KN=%g"%ktDivKn) #-DTRACK_ENERGY")
 
 sim.scene.materials=[clDem.ElastMat(young=1e6,density=1e3)]
 sim.scene.gravity=(-4,-5,-10)
