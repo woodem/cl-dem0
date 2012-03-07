@@ -317,7 +317,6 @@ void computeL6GeomGeneric(struct Contact* c, const Vec3 pos1, const Vec3 vel1, c
 	if(con_geomT_get_local(c)==0){
 		con_geomT_set_local(c,Geom_L6Geom); c->geom.l6g=L6Geom_new();
 		c->ori=Mat3_rot_setYZ(normal);
-		printf("$$ X=%v3g, |x1|=%g, |x2|=%g, Y=%v3g\n",Mat3_row(c->ori,0),Mat3_row(c->ori,0).s1,Mat3_row(c->ori,0).s2,Mat3_row(c->ori,1));
 		Mat3 mm=Mat3_setRows((Vec3)(1,2,3),(Vec3)(4,5,6),(Vec3)(7,8,9));
 		//printf("row0=%v3g, row1=%v3g, row1=%v3g\n",Mat3_row(mm,0),Mat3_row(mm,1),Mat3_row(mm,2));
 		c->pos=contPt;
@@ -347,7 +346,6 @@ void computeL6GeomGeneric(struct Contact* c, const Vec3 pos1, const Vec3 vel1, c
 	c->geom.l6g.angVel=Mat3_multV(midOri,angVel2-angVel1);
 	c->geom.l6g.uN=uN;
 }
-
 
 kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	const int substep=SUB_contCompute;
@@ -404,7 +402,6 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 			computeL6GeomGeneric(&c,p1.pos,p1.vel,p1.angVel,p2.pos,p2.vel,p2.angVel,normal,contPt,uN,dt);
 			physLengths=(double2)p2.shape.sphere.radius+.5*uN; // both according to the sphere
 			physArea=M_PI*pown(p2.shape.sphere.radius,2);
-			printf("contPt=%v3g\n",c.pos);
 			break;
 		}
 		default: printf("ERROR: ##%ld+%ld has unknown shape index combination %d+%d",c.ids.s0,c.ids.s1,par_shapeT_get_local(&p1),par_shapeT_get_local(&p2));
@@ -519,5 +516,7 @@ kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST){
 		p2->force+=Fp2; p2->torque+=Tp2;
 	UNLOCK(&p2->mutex);
 }
+
+
 #endif
 #endif
