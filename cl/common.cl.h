@@ -84,7 +84,7 @@ typedef long par_id_t;
 typedef cl_long2 par_id2_t;
 
 inline int flags_get(const int flags, const flagSpec spec){ return (flags>>spec.x)&((1<<spec.y)-1); }
-inline void flags_set(global int *flags, const flagSpec spec, int val){
+inline void flags_set_global(global int *flags, const flagSpec spec, int val){
 	(*flags)&=~(((1<<spec.y)-1)<<spec.x); /* zero field */
 	#ifdef __cplusplus
 		if(val>=(1<<spec.y)) throw std::runtime_error("Flag field value overflows its size: value "+lexical_cast<string>(val)+", field width "+lexical_cast<string>(spec.y)+", offset "+lexical_cast<string>(spec.x));

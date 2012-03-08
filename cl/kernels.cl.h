@@ -118,7 +118,7 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	Real damping=scene->damping;
 	Real verletDist=scene->verletDist;
 
-	int dofs=par_dofs_get_local(&pp);
+	int dofs=par_dofs_get(&pp);
 	Vec3 accel=0., angAccel=0.;
 	// optimize for particles with all translations/rotations (vector ops)
 	// aspherical integration (if p->inertia has the same components)
@@ -206,7 +206,7 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
 	global struct Particle *p=&par[id];
 	struct Particle pp=*p;
 	Vec3 mn, mx;
-	switch(par_shapeT_get_local(&pp)){
+	switch(par_shapeT_get(&pp)){
 		case Shape_Sphere:
 			mn=pp.pos-(Vec3)(pp.shape.sphere.radius);
 			mx=pp.pos+(Vec3)(pp.shape.sphere.radius);
@@ -240,12 +240,12 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	PRINT_TRACE("checkPotCon_PC");
 	
 	// always make contacts such that shape index of the first particle <= shape index of the second particle
-	int flip=par_shapeT_get(&par[ids.s0])>par_shapeT_get(&par[ids.s1]);
+	int flip=par_shapeT_get_global(&par[ids.s0])>par_shapeT_get_global(&par[ids.s1]);
 	if(flip) ids=(par_id2_t)(ids.s1,ids.s0);
 
 	const struct Particle p1=par[ids.s0];
 	const struct Particle p2=par[ids.s1];
-	switch(SHAPET2_COMBINE(par_shapeT_get_local(&p1),par_shapeT_get_local(&p2))){
+	switch(SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2))){
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
 			Real r1=p1.shape.sphere.radius, r2=p2.shape.sphere.radius;
 			if(distance(p1.pos,p2.pos)>=r1+r2){
@@ -258,7 +258,7 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 			if(fabs(((Real*)(&(p2.pos)))[p1.shape.wall.axis]-((Real*)(&(p1.pos)))[p1.shape.wall.axis])>=p2.shape.sphere.radius) return;
 			break;
 		}
-		default: printf("ERROR: Invalid shape indices in pot ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, sphere+wall=%d)!\n",ids.s0,ids.s1,par_shapeT_get_local(&p1),par_shapeT_get_local(&p2),SHAPET2_COMBINE(par_shapeT_get_local(&p1),par_shapeT_get_local(&p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall)); return;
+		default: printf("ERROR: Invalid shape indices in pot ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, sphere+wall=%d)!\n",ids.s0,ids.s1,par_shapeT_get(&p1),par_shapeT_get(&p2),SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall)); return;
 	};
 	#ifdef CON_LOG
 		printf("Creating ##%ld+%ld\n",ids.s0,ids.s1);
@@ -289,7 +289,9 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 		// debugging only (the race conditions is fixed now, so it should not happen anymore)
 		if(con[ixCon].ids.s0>0){ printf("ERROR: con[%d] reported as free, but contains ##%ld+%ld\n",ixCon,con[ixCon].ids.s0,con[ixCon].ids.s1); }
 	#endif
-	Contact_init(&(con[ixCon]));
+	// this is perhaps too expensive?
+	struct Contact c; Contact_init(&c);
+	con[ixCon]=c;
 	con[ixCon].ids=ids;
 
 	// add the change to cJournal
@@ -314,8 +316,8 @@ bool Bbox_overlap(global float* _A, global float* _B){
 
 void computeL6GeomGeneric(struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, Real dt){
 	// new contact
-	if(con_geomT_get_local(c)==0){
-		con_geomT_set_local(c,Geom_L6Geom); c->geom.l6g=L6Geom_new();
+	if(con_geomT_get(c)==0){
+		con_geomT_set(c,Geom_L6Geom); L6Geom_init(&c->geom.l6g);
 		c->ori=Mat3_rot_setYZ(normal);
 		Mat3 mm=Mat3_setRows((Vec3)(1,2,3),(Vec3)(4,5,6),(Vec3)(7,8,9));
 		//printf("row0=%v3g, row1=%v3g, row1=%v3g\n",Mat3_row(mm,0),Mat3_row(mm,1),Mat3_row(mm,2));
@@ -332,7 +334,7 @@ void computeL6GeomGeneric(struct Contact* c, const Vec3 pos1, const Vec3 vel1, c
 	Vec3 prevOri1=Mat3_row(c->ori,1);
 	Vec3 midOri1=prevOri1-.5*cross(prevOri1,normRotVec+normTwistVec);
 	Mat3 midOri=Mat3_setRows(midNormal,midOri1,cross(midNormal,midOri1));
-	//midOri=Mat3_orthonorm_row0(midOri); // not clear how much difference this one makes
+	midOri=Mat3_orthonorm_row0(midOri); // not clear how much difference this one makes
 	Vec3 currOri1=prevOri1-cross(midOri1,normRotVec+normTwistVec);
 	Mat3 currOri=Mat3_setRows(currNormal,currOri1,cross(currNormal,currOri1));
 	currOri=Mat3_orthonorm_row0(currOri);
@@ -364,10 +366,10 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	bool contactBroken=false;
 	const struct Particle p1=par[c.ids.s0];
 	const struct Particle p2=par[c.ids.s1];
-	if(par_shapeT_get_local(&p1)>par_shapeT_get_local(&p2)) printf("ERROR: ##%ld+%ld is not ordered by shape indices: %d+%d\n",c.ids.s0,c.ids.s1,par_shapeT_get_local(&p1),par_shapeT_get_local(&p2));
+	if(par_shapeT_get(&p1)>par_shapeT_get(&p2)) printf("ERROR: ##%ld+%ld is not ordered by shape indices: %d+%d\n",c.ids.s0,c.ids.s1,par_shapeT_get(&p1),par_shapeT_get(&p2));
 
 	/* update geometry, or create new */
-	switch(SHAPET2_COMBINE(par_shapeT_get_local(&p1),par_shapeT_get_local(&p2))){
+	switch(SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2))){
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
 			Real r1=p1.shape.sphere.radius, r2=p2.shape.sphere.radius;
 			Real dist=distance(p1.pos,p2.pos);
@@ -404,18 +406,18 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 			physArea=M_PI*pown(p2.shape.sphere.radius,2);
 			break;
 		}
-		default: printf("ERROR: ##%ld+%ld has unknown shape index combination %d+%d",c.ids.s0,c.ids.s1,par_shapeT_get_local(&p1),par_shapeT_get_local(&p2));
+		default: printf("ERROR: ##%ld+%ld has unknown shape index combination %d+%d",c.ids.s0,c.ids.s1,par_shapeT_get(&p1),par_shapeT_get(&p2));
 	}
 	/* update physical params: only if there are no physical params yet */
-	if(!contactBroken && con_physT_get_local(&c)==0){
-		int matId1=par_matId_get_local(&p1), matId2=par_matId_get_local(&p2);
+	if(!contactBroken && con_physT_get(&c)==0){
+		int matId1=par_matId_get(&p1), matId2=par_matId_get(&p2);
 		const struct Material m1=scene->materials[matId1];
 		const struct Material m2=scene->materials[matId2];
-		int matT1=mat_matT_get_local(&m1), matT2=mat_matT_get_local(&m2);
+		int matT1=mat_matT_get(&m1), matT2=mat_matT_get(&m2);
 		switch(MATT2_COMBINE(matT1,matT2)){
 			case MATT2_COMBINE(Mat_ElastMat,Mat_ElastMat):{
-				c.phys.normPhys=NormPhys_new();
-				con_physT_set_local(&c,Phys_NormPhys);
+				NormPhys_init(&c.phys.normPhys);
+				con_physT_set(&c,Phys_NormPhys);
 				c.phys.normPhys.kN=1./(physLengths.s0/(physArea*m1.mat.elast.young)+physLengths.s1/(physArea*m2.mat.elast.young));
 				// printf("d1=%f, d2=%f, A=%f, E1=%f, E2=%f, kN=%f\n",d1,d2,A,m1->mat.elast.young,m2->mat.elast.young,c->phys.normPhys.kN);
 				break;
@@ -425,7 +427,7 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	}
 	/* contact law */
 	if(!contactBroken){
-		int geomT=con_geomT_get_local(&c), physT=con_physT_get_local(&c);
+		int geomT=con_geomT_get(&c), physT=con_physT_get(&c);
 		switch(GEOMT_PHYST_COMBINE(geomT,physT)){
 			case GEOMT_PHYST_COMBINE(Geom_L1Geom,Phys_NormPhys):
 				c.force=(Vec3)(c.geom.l1g.uN*c.phys.normPhys.kN,0,0);
@@ -490,7 +492,8 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 			cJournal[ixCJournal].ids=c.ids; cJournal[ixCJournal].index=-1; cJournal[ixCJournal].what=CJOURNAL_CON_DEL; 
 		}
 		// delete
-		Contact_init(&con[cid]); // or just set ids=(-1,-1)?
+		struct Contact c; Contact_init(&c);
+		con[cid]=c; // or just set ids=(-1,-1)?
 	}
 }
 
@@ -502,7 +505,7 @@ kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST){
 
 	/* how to synchronize access to particles? */
 	const struct Contact c=con[get_global_id(0)];
-	if(con_geomT_get_local(&c)==0) return;
+	if(con_geomT_get(&c)==0) return;
 	global struct Particle *p1=&(par[c.ids.x]), *p2=&(par[c.ids.y]);
 	Mat3 R_T=Mat3_transpose(c.ori);
 	Vec3 Fp1=+Mat3_multV(R_T,c.force);

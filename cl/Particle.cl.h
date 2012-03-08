@@ -24,7 +24,7 @@ struct Wall{
 enum _shape_enum { Shape_None=0, Shape_Wall, Shape_Sphere };
 
 struct Particle;
-static void Particle_init(global struct Particle*);
+static void Particle_init(struct Particle*);
 
 // http://gpu.doxos.eu/trac/wiki/OpenCLDataStructures
 struct Particle{
@@ -73,10 +73,10 @@ constant flagSpec par_flag_matId  ={PAR_OFF_matId,PAR_LEN_matId};
 // static_assert(par_flag_groups.x+par_flag_groups.y<=32); // don't overflow int
 
 #define PARTICLE_FLAG_GET_SET(what) \
-	inline int par_##what##_get(global const struct Particle *p){ return flags_get(p->flags,par_flag_##what); } \
-	inline int par_##what##_get_local(const struct Particle *p){ return flags_get(p->flags,par_flag_##what); } \
-	inline void par_##what##_set(global struct Particle *p, int val){ flags_set(&(p->flags),par_flag_##what,val); } \
-	inline void par_##what##_set_local(struct Particle *p, int val){ flags_set_local(&(p->flags),par_flag_##what,val); }
+	inline int par_##what##_get_global(global const struct Particle *p){ return flags_get(p->flags,par_flag_##what); } \
+	inline int par_##what##_get(const struct Particle *p){ return flags_get(p->flags,par_flag_##what); } \
+	inline void par_##what##_set_global(global struct Particle *p, int val){ flags_set_global(&(p->flags),par_flag_##what,val); } \
+	inline void par_##what##_set(struct Particle *p, int val){ flags_set_local(&(p->flags),par_flag_##what,val); }
 PARTICLE_FLAG_GET_SET(shapeT);
 PARTICLE_FLAG_GET_SET(clumped);
 PARTICLE_FLAG_GET_SET(stateT);
@@ -92,7 +92,7 @@ constant int par_dofs_all=63;  // 0b0111111
 // all groups
 constant int par_groups_all=(1<<PAR_LEN_groups)-1;
 
-static void Particle_init(global struct Particle* p){
+static void Particle_init(struct Particle* p){
 	p->flags=0;
 	p->pos=Vec3_set(NAN,NAN,NAN);
 	p->bboxPos=Vec3_set(NAN,NAN,NAN);

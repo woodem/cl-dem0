@@ -5,21 +5,50 @@
 
 CLDEM_NAMESPACE_BEGIN();
 
-struct L1Geom{ Real uN; };
-static struct L1Geom L1Geom_new(){ struct L1Geom ret; ret.uN=NAN; return ret; }
+struct L1Geom;
+void L1Geom_init(struct L1Geom*);
+struct L1Geom{
+	Real uN;
+#ifdef __cplusplus
+	L1Geom(){ L1Geom_init(this); }
+#endif
+};
+inline void L1Geom_init(struct L1Geom* obj){
+	obj->uN=NAN;
+}
 
-struct L6Geom{ Real uN; Vec3 vel; Vec3 angVel; };
-static struct L6Geom L6Geom_new(){ struct L6Geom ret; ret.uN=NAN; ret.vel=ret.angVel=Vec3_set(0.,0.,0.); return ret; }
+
+struct L6Geom;
+void L6Geom_init(struct L6Geom*);
+struct L6Geom{
+	Real uN; Vec3 vel; Vec3 angVel;
+#ifdef __cplusplus
+	L6Geom(){ L6Geom_init(this); }
+#endif
+};
+inline void L6Geom_init(struct L6Geom* obj){
+	obj->uN=NAN;
+	obj->vel=obj->angVel=Vec3_set(0.,0.,0.);
+}
 
 enum _geom_enum { Geom_L1Geom=1, Geom_L6Geom };
 
-struct NormPhys{ Real kN; };
-static struct NormPhys NormPhys_new(){ struct NormPhys ret; ret.kN=NAN; return ret; }
+struct NormPhys;
+void NormPhys_init(struct NormPhys*);
+struct NormPhys{
+	Real kN;
+	#ifdef __cplusplus
+		NormPhys(){ NormPhys_init(this); }
+	#endif
+};
+inline void NormPhys_init(struct NormPhys* obj){
+	obj->kN=NAN;
+}
 
 enum _phys_enum { Phys_NormPhys=1, };
 
 struct Contact;
-static void Contact_init(global struct Contact *c);
+static void Contact_init(struct Contact *c);
 
 struct Contact{
 	#ifdef __cplusplus
@@ -53,15 +82,15 @@ constant flagSpec con_flag_shapesT={CON_OFF_shapesT,CON_LEN_shapesT};
 constant flagSpec con_flag_geomT  ={CON_OFF_geomT,CON_LEN_geomT};
 constant flagSpec con_flag_physT  ={CON_OFF_physT,CON_LEN_physT};
 #define CONTACT_FLAG_GET_SET(what) \
-	inline int con_##what##_get(global const struct Contact *c){ return flags_get(c->flags,con_flag_##what); } \
-	inline void con_##what##_set(global struct Contact *c, int val){ flags_set(&c->flags,con_flag_##what,val); } \
-	inline int con_##what##_get_local(const struct Contact *c){ return flags_get(c->flags,con_flag_##what); } \
-	inline void con_##what##_set_local(struct Contact *c, int val){ flags_set_local(&c->flags,con_flag_##what,val); } 
+	inline int con_##what##_get_global(global const struct Contact *c){ return flags_get(c->flags,con_flag_##what); } \
+	inline void con_##what##_set_global(global struct Contact *c, int val){ flags_set_global(&c->flags,con_flag_##what,val); } \
+	inline int con_##what##_get(const struct Contact *c){ return flags_get(c->flags,con_flag_##what); } \
+	inline void con_##what##_set(struct Contact *c, int val){ flags_set_local(&c->flags,con_flag_##what,val); } 
 CONTACT_FLAG_GET_SET(shapesT);
 CONTACT_FLAG_GET_SET(geomT);
 CONTACT_FLAG_GET_SET(physT);
 
-static void Contact_init(global struct Contact *c){
+static void Contact_init(struct Contact *c){
 	c->ids.s0=-1; c->ids.s1=-1;
 	c->pos=Vec3_set(0,0,0);
 	c->ori=Mat3_identity();
@@ -125,9 +154,9 @@ namespace clDem{
 	#ifndef YADE_CLDEM
 		static
 		void Contact_cl_h_expose(){
-			py::class_<L1Geom>("L1Geom").def("__init__",L1Geom_new).PY_RW(L1Geom,uN);
-			py::class_<L6Geom>("L6Geom").def("__init__",L6Geom_new).PY_RWV(L6Geom,uN).PY_RWV(L6Geom,vel).PY_RWV(L6Geom,angVel);
-			py::class_<NormPhys>("NormPhys").def("__init__",NormPhys_new).PY_RW(NormPhys,kN);
+			py::class_<L1Geom>("L1Geom").PY_RW(L1Geom,uN);
+			py::class_<L6Geom>("L6Geom").PY_RWV(L6Geom,uN).PY_RWV(L6Geom,vel).PY_RWV(L6Geom,angVel);
+			py::class_<NormPhys>("NormPhys").PY_RW(NormPhys,kN);
 
 			py::class_<Contact>("Contact")
 				.PY_RWV(Contact,ids).PY_RWV(Contact,pos).PY_RWV(Contact,ori).PY_RWV(Contact,force).PY_RWV(Contact,torque)

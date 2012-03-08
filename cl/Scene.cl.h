@@ -23,10 +23,10 @@ struct Material{
 #define MAT_OFF_matT 0
 constant flagSpec mat_flag_matT={MAT_OFF_matT,MAT_LEN_matT};
 #define MATERIAL_FLAG_GET_SET(what) \
-	inline int mat_##what##_get(global const struct Material *m){ return flags_get(m->flags,mat_flag_##what); } \
-	inline int mat_##what##_get_local(const struct Material *m){ return flags_get(m->flags,mat_flag_##what); } \
-	inline void mat_##what##_set(global struct Material *m, int val){ flags_set(&m->flags,mat_flag_##what,val); } \
-	inline void mat_##what##_set_local(struct Material *m, int val){ flags_set_local(&m->flags,mat_flag_##what,val); }
+	inline int mat_##what##_get_global(global const struct Material *m){ return flags_get(m->flags,mat_flag_##what); } \
+	inline int mat_##what##_get(const struct Material *m){ return flags_get(m->flags,mat_flag_##what); } \
+	inline void mat_##what##_set_global(global struct Material *m, int val){ flags_set_global(&m->flags,mat_flag_##what,val); } \
+	inline void mat_##what##_set(struct Material *m, int val){ flags_set_local(&m->flags,mat_flag_##what,val); }
 MATERIAL_FLAG_GET_SET(matT);
 
 #define MATT2_COMBINE(m1,m2) ((m1) | (m2)<<(MAT_LEN_matT))
@@ -121,7 +121,7 @@ inline void Scene_init(struct Scene* s){
 	Scene_interrupt_reset(s);
 	s->updateBboxes=false;
 	// no materials
-	for(int i=0; i<SCENE_MAT_NUM; i++) mat_matT_set_local(&s->materials[i],0); 
+	for(int i=0; i<SCENE_MAT_NUM; i++) mat_matT_set(&s->materials[i],0); 
 	//Scene_energyReset(&s): but the pointer is not global, copy here instead
 	for(int i=0; i<SCENE_ENERGY_NUM; i++){ s->energy[i]=0; s->energyMutex[i]=0; }
 	// no allocated arrays
@@ -153,8 +153,8 @@ be inserted in potential contacts at all.
  */
 inline bool Scene_particles_may_collide(global struct Scene* s, global struct Particle* p1, global struct Particle* p2){
 	// check if one of the particles is a clump, in that case there is no collision possible
-	if((par_groups_get(p1) & par_groups_get(p2) & s->loneGroups)!=0) return false;
-	if((par_groups_get(p1) & par_groups_get(p2))==0) return false;
+	if((par_groups_get_global(p1) & par_groups_get_global(p2) & s->loneGroups)!=0) return false;
+	if((par_groups_get_global(p1) & par_groups_get_global(p2))==0) return false;
 	return true;
 }
 
