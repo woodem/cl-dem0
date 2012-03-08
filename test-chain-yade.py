@@ -13,40 +13,23 @@ supports=[0,9,19];
 r=.005
 E=1e4
 rho=1e4
-
-checkEqual=True # write message to the console if position/orientation/uN differs
+nan=float('nan')
 
 useL1Geom,ktDivKn,charLen,dtFrac=(
-	(True,0,None,.2),
-	(False,.2,None,.05),
+	(False,.2,nan,.05),
 	(False,.8,1e5*r,.01),
-)[2] # pick configuration set here
+)[1] # pick configuration set here
 
-sim=clDem.Simulation(pNum,dNum,' '.join([
-	'-DGEOM_L1GEOM' if useL1Geom else '',
-	'-DBEND_CHARLEN=%g'%charLen if charLen else '',
-	'-DSHEAR_KT_DIV_KN=%g'%ktDivKn if ktDivKn>0 else '',
-	'-DTRACK_ENERGY',
-])) # pass from command-line
-
+sim=clDem.Simulation(pNum,dNum,charLen=charLen,ktDivKn=ktDivKn,trackEnergy=True)
 sim.scene.materials=[clDem.ElastMat(density=rho,young=E)]
 sim.scene.gravity=(0,0,-10)
 sim.scene.damping=.4
 sim.scene.verletDist=.3*r
-cons=[]
 
 for i in range(0,N):
 	sim.par.append(clDem.mkSphere((2*r*i*.99999,0,0),r,sim,matId=0,fixed=(i in supports)))
-	print '#%d, flags=%d'%(i,sim.par[-1].flags)
-	if i>0: cons.append((i-1,i))
 
 sim.scene.dt=dtFrac*sim.pWaveDt()
-
-#yade.O.scene.dt=sim.scene.dt
-
-
-#clDem.briefOutput()
-#sim.show()
 
 def yadeCopy():
 	import _clDem
@@ -67,9 +50,6 @@ def yadeCopy():
 			yade.O.dem.par.append(yade.utils.sphere(p.pos,p.shape.radius,material=yadeMat[p.matId],fixed=(p.dofs==0),color=.5 if p.dofs==0 else .3,wire=True))
 		elif isinstance(p.shape,_clDem.Wall):
 			yade.O.dem.par.append(yade.utils.wall(p.pos,p.shape.axis,material=yadeMat[p.matId],fixed=(p.dofs==0),color=.5 if p.dofs==0 else .3,wire=True))
-	# copy contacts
-	#ids1, ids2=[c[0] for c in cons],[c[1] for c in cons]
-	#yade.utils.createContacts(ids1,ids2,[yade.dem.Cg2_Sphere_Sphere_L6Geom()],[yade.dem.Cp2_FrictMat_FrictPhys()])
 	yade.O.dem.collectNodes()
 	yade.O.scene.dt=sim.scene.dt
 	yade.O.scene.trackEnergy=True
@@ -77,10 +57,8 @@ def yadeCopy():
 		yade.dem.Gravity(gravity=(sim.scene.gravity)),
 		yade.dem.Leapfrog(damping=sim.scene.damping,reset=True,kinSplit=True),
 		yade.dem.InsertionSortCollider([yade.dem.Bo1_Sphere_Aabb(),yade.dem.Bo1_Wall_Aabb(),yade.dem.Bo1_Facet_Aabb()]),
-		yade.dem.ContactLoop([yade.dem.Cg2_Sphere_Sphere_L6Geom(),yade.dem.Cg2_Wall_Sphere_L6Geom(),yade.dem.Cg2_Facet_Sphere_L6Geom()],[yade.dem.Cp2_FrictMat_FrictPhys(ktDivKn=ktDivKn)],[yade.dem.Law2_L6Geom_FrictPhys_LinEl6(charLen=float('inf') if (useL1Geom or not charLen) else charLen)]),
-		yade.dem.IntraForce([yade.dem.In2_Sphere_ElastMat()]),
-		yade.cld.CLDemRun(stepPeriod=1,compare=True,relTol=1e-5),
-		#yade.core.PyRunner('showEnergies()',100),
+		yade.dem.ContactLoop([yade.dem.Cg2_Sphere_Sphere_L6Geom(),yade.dem.Cg2_Wall_Sphere_L6Geom(),yade.dem.Cg2_Facet_Sphere_L6Geom()],[yade.dem.Cp2_FrictMat_FrictPhys(ktDivKn=ktDivKn)],[yade.dem.Law2_L6Geom_FrictPhys_LinEl6(charLen=float('inf') if (useL1Geom or not charLen) else charLen)],applyForces=True),
+		yade.cld.CLDemRun(stepPeriod=1,compare=True,relTol=1e-5,raiseLimit=10.),
 	]
 
 def showEnergies():
@@ -93,7 +71,7 @@ def showEnergies():
 		print '\t%10s %15s / %15s'%(g,gg,cc)
 
 # inspect XML files to see that they are identical
-yade.O.scene=yade.cld.CLDemRun.clDemToYade(sim,1)
+yade.O.scene=yade.cld.CLDemRun.clDemToYade(sim,1,relTol=1e-5)
 O.save('/tmp/a1.xml')
 yadeCopy() # this sets O.scene inside
 O.save('/tmp/a2.xml')

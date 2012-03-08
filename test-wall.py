@@ -10,7 +10,7 @@ import pylab, itertools, random
 pNum=int(sys.argv[1]) if len(sys.argv)>1 else -1
 dNum=int(sys.argv[2]) if len(sys.argv)>2 else -1
 
-sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION -DTRACK_ENERGY")
+sim=clDem.Simulation(pNum,dNum,breakTension=True,trackEnergy=True)
 
 r=0.1
 sim.scene.materials=[clDem.ElastMat(young=1e6,density=1e3)]

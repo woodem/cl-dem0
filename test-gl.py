@@ -15,7 +15,7 @@ margin=10
 r=.005
 ktDivKn=.2
 
-sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION -DSHEAR_KT_DIV_KN=%g"%ktDivKn) #-DTRACK_ENERGY")
+sim=clDem.Simulation(pNum,dNum,breakTension=True,ktDivKn=ktDivKn)
 
 sim.scene.materials=[clDem.ElastMat(young=1e6,density=1e3)]
 sim.scene.gravity=(-4,-5,-10)
@@ -23,15 +23,15 @@ sim.scene.damping=.4
 sim.scene.verletDist=.3*r # collision detection in this case
 sim.maxScheduledSteps=10
 
-sim.par.append(clDem.mkWall(pos=(0,0,2*r),axis=2,sim=sim,matId=0))
-sim.par.append(clDem.mkWall(pos=(0,0,0),axis=0,sim=sim,matId=0))
-sim.par.append(clDem.mkWall(pos=(0,0,0),axis=1,sim=sim,matId=0))
+sim.par.append(clDem.mkWall(pos=(0,0,2*r),axis=2,sim=sim,matId=0,groups=0b011))
+sim.par.append(clDem.mkWall(pos=(0,0,0),axis=0,sim=sim,matId=0,groups=0b011))
+sim.par.append(clDem.mkWall(pos=(0,0,0),axis=1,sim=sim,matId=0,groups=0b011))
+# walls are in loneGroups, but collide with spheres below (0b001) as well
+sim.scene.loneGroups=0b010
 
 # ground
 #for x0,x1 in itertools.product(range(0,dim[0]),range(0,dim[1])):
 #	sim.par.append(clDem.mkSphere((x0*2*r,x1*2*r,0),r,sim,matId=0,groups=0b011,fixed=True))
-
-sim.scene.loneGroups=0b010
 
 import yade.pack
 sp=yade.pack.SpherePack()
@@ -40,19 +40,23 @@ for center,radius in sp:
 	sim.par.append(clDem.mkSphere(center,radius,sim,matId=0,groups=0b001,fixed=False))
 	sim.par[-1].vel=(0,0,-.05)
 
-sim.scene.dt=.5*sim.pWaveDt()
-O.scene.dt=sim.scene.dt
+O.scene.dt=sim.scene.dt=.5*sim.pWaveDt()
 
 
 from yade import *
 import yade.cld
 import yade.log
 import yade.gl
-#yade.log.setLevel('GLViewer',yade.log.TRACE)
-O.scene.fields=[yade.cld.CLDemField(sim)]
-nan=float('nan')
-#O.scene.loHint=O.scene.hiHint=(nan,nan,nan)
-O.scene.engines=[yade.cld.CLDemRun(stepPeriod=1),]
+from yade import timing
+if 1: # run on both
+	O.scene=yade.cld.CLDemRun.clDemToYade(sim,stepPeriod=200,relTol=-1)
+	O.timingEnabled=True
+	# remove last engine and the clDem field
+	#O.scene.engines=O.scene.engines[0:-1]
+	#O.scene.fields=[O.scene.fields[0]]
+else: # run via OpenCL only
+	O.scene.fields=[yade.cld.CLDemField(sim)]
+	O.scene.engines=[yade.cld.CLDemRun(stepPeriod=1),]
 O.scene.ranges=[yade.gl.Gl1_CLDemField.parRange]
 yade.gl.Gl1_CLDemField.bboxes=False
 

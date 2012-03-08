@@ -31,7 +31,7 @@ inline void L6Geom_init(struct L6Geom* obj){
 	obj->vel=obj->angVel=Vec3_set(0.,0.,0.);
 }
 
-enum _geom_enum { Geom_L1Geom=1, Geom_L6Geom };
+enum _geom_enum { Geom_None=0, Geom_L1Geom=1, Geom_L6Geom };
 
 struct NormPhys;
 void NormPhys_init(struct NormPhys*);
@@ -45,7 +45,7 @@ inline void NormPhys_init(struct NormPhys* obj){
 	obj->kN=NAN;
 }
 
-enum _phys_enum { Phys_NormPhys=1, };
+enum _phys_enum { Phys_None=0, Phys_NormPhys=1, };
 
 struct Contact;
 static void Contact_init(struct Contact *c);

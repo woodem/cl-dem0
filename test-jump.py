@@ -15,7 +15,7 @@ r=.005
 E=1e4
 rho=1e3
 
-sim=clDem.Simulation(pNum,dNum,"-DL6GEOM_BREAK_TENSION -DTRACK_ENERGY")
+sim=clDem.Simulation(pNum,dNum,breakTension=True,trackEnergy=True)
 
 sim.scene.materials=[clDem.ElastMat(young=1e4,density=1e4)]
 sim.scene.gravity=(0,0,-10)

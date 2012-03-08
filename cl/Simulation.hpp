@@ -68,9 +68,20 @@ namespace clDem{
 		}
 		#endif
 
-		Simulation(int pNum=-1,int dNum=-1, const string& opts=""){
+		// numerical parameters
+		bool trackEnergy;
+		Real ktDivKn;
+		bool breakTension;
+		Real charLen;
+
+		Simulation(int pNum=-1,int dNum=-1, bool _trackEnergy=false, Real _ktDivKn=NAN, bool _breakTension=false, Real _charLen=NAN, const string& _opts=""): trackEnergy(_trackEnergy), ktDivKn(_ktDivKn), breakTension(_breakTension), charLen(_charLen)	{
 			scene=Scene();
 			maxScheduledSteps=-1;
+			string opts(_opts);
+			if(trackEnergy) opts+=" -DTRACK_ENERGY";
+			if(!isnan(ktDivKn)) opts+=" -DSHEAR_KT_DIV_KN="+lexical_cast<string>(ktDivKn);
+			if(breakTension) opts+=" -DL6GEOM_BREAK_TENSION";
+			if(!isnan(charLen)) opts+=" -DBEND_CHARLEN="+lexical_cast<string>(charLen);
 			initCl(pNum,dNum,opts);
 			cpuCollider=make_shared<CpuCollider>();
 		}
@@ -130,7 +141,7 @@ namespace clDem{
 
 static
 void Simulation_hpp_expose(){
-	py::class_<clDem::Simulation,shared_ptr<clDem::Simulation>>("Simulation",py::init<int,int,string>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1,py::arg("opts")="")))
+	py::class_<clDem::Simulation,shared_ptr<clDem::Simulation>>("Simulation",py::init<int,int,bool,Real,bool,Real,string>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1,py::arg("trackEnergy")=false,py::arg("ktDivKn")=NAN,py::arg("breakTension")=false,py::arg("charLen")=NAN,py::arg("opts")="")))
 		.PY_RW(Simulation,scene)
 		.PY_RW(Simulation,par)
 		.PY_RW(Simulation,con)
@@ -140,6 +151,10 @@ void Simulation_hpp_expose(){
 		.PY_RWV(Simulation,cJournal)
 		.PY_RWV(Simulation,bboxes)
 		.PY_RW(Simulation,maxScheduledSteps)
+		.def_readonly("trackEnergy",&Simulation::trackEnergy)
+		.def_readonly("ktDivKn",&Simulation::ktDivKn)
+		.def_readonly("breakTension",&Simulation::breakTension)
+		.def_readonly("charLen",&Simulation::charLen)
 		.def("run",&Simulation::run,(py::arg("nSteps"),py::arg("resetArrays")=true))
 		#ifdef CLDEM_VTK
 		.def("saveVtk",&Simulation::saveVtk,(py::arg("prefix"),py::arg("compress")=true,py::arg("ascii")=false))

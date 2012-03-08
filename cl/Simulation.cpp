@@ -57,6 +57,15 @@ namespace clDem{
 		ensureArrayNonempty(pot,ARR_POT,this,no2);
 		ensureArrayNonempty(potFree,ARR_POTFREE,this,-1);
 		ensureArrayNonempty(cJournal,ARR_CJOURNAL,this,CJournalItem());
+		if(scene.step==-1 && scene.rollback==0){
+			// allow pre-created contacts in the very first step
+			long i;
+			// don't count invalid items at the end
+			for(i=con.size()-1; i>=0 && con[i].ids.s0<0; i--);
+			scene.arrSize[ARR_CON]=i+1;
+			for(i=pot.size()-1; i>=0 && pot[i].s0<0; i--);
+			scene.arrSize[ARR_POT]=i+1;
+		}
 
 		/* write actually allocated buffer sizes to scene */
 		scene.arrAlloc[ARR_CON]=con.size();
@@ -166,8 +175,8 @@ namespace clDem{
 		*/
 		int nSteps(_nSteps);
 		int substepStart=0;
-		int rollbacks=0;
 		const int rollbacksMax=1000;
+		scene.rollback=0;
 		bool allOk;
 		Scene SS;
 		const int maxLoop=-1;
@@ -235,11 +244,11 @@ namespace clDem{
 					} else {
 						throw std::runtime_error("Unknown destructive interrupt: flags="+lexical_cast<string>(SS.interrupt.flags));
 					}
-					if(rollbacks>=rollbacksMax) throw std::runtime_error("Too many rollbacks ("+lexical_cast<string>(rollbacks)+"), giving up.");
-					rollbacks++;
-					cerr<<"Rollback no. "<<rollbacks<<" to step "<<scene.step<<" / "<<substepStart<<endl;
+					if(SS.rollback>=rollbacksMax) throw std::runtime_error("Too many rollbacks ("+lexical_cast<string>(SS.rollback)+"), giving up.");
+					cerr<<"Rollback no. "<<SS.rollback+1<<" to step "<<scene.step<<" / "<<substepStart<<endl;
 					//
 					nSteps=goalStep-scene.step;
+					scene.rollback=SS.rollback+1;
 					// substepStart=0; // use substep which was run the last time --
 					writeBufs(/*wait*/false);
 				}

@@ -78,6 +78,7 @@ struct Scene{
 	Real t;
 	Real dt;
 	long step;
+	cl_int rollback; // used to detect very first step at adjust arrays, not used inside kernels
 	struct Interrupt {
 		cl_int step; // when -1, no interrupt; // FIXME: should be long, but there are no atomics on longs!
 		cl_int substep;
@@ -120,6 +121,7 @@ inline void Scene_init(struct Scene* s){
 	s->loneGroups=0;
 	Scene_interrupt_reset(s);
 	s->updateBboxes=false;
+	s->rollback=0;
 	// no materials
 	for(int i=0; i<SCENE_MAT_NUM; i++) mat_matT_set(&s->materials[i],0); 
 	//Scene_energyReset(&s): but the pointer is not global, copy here instead
