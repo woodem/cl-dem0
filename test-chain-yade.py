@@ -72,12 +72,12 @@ def yadeCopy():
 	yade.O.scene.dt=sim.scene.dt
 	yade.O.scene.trackEnergy=True
 	yade.O.scene.engines=[
-		yade.dem.Gravity(gravity=(sim.scene.gravity),field=demField),
-		yade.dem.Leapfrog(damping=sim.scene.damping,reset=True,kinSplit=True,field=demField),
-		yade.dem.InsertionSortCollider([yade.dem.Bo1_Sphere_Aabb()],field=demField),
-		yade.dem.ContactLoop([yade.dem.Cg2_Sphere_Sphere_L6Geom()],[yade.dem.Cp2_FrictMat_FrictPhys(ktDivKn=ktDivKn)],[yade.dem.Law2_L6Geom_FrictPhys_LinEl6(charLen=float('inf') if (useL1Geom or not charLen) else charLen)],field=demField),
-		yade.dem.IntraForce([yade.dem.In2_Sphere_ElastMat()],field=demField),
-		yade.cld.CLDemRun(stepPeriod=1,compare=True,relTol=1e-4,field=clField),
+		yade.dem.Gravity(gravity=(sim.scene.gravity)),
+		yade.dem.Leapfrog(damping=sim.scene.damping,reset=True,kinSplit=True),
+		yade.dem.InsertionSortCollider([yade.dem.Bo1_Sphere_Aabb()]),
+		yade.dem.ContactLoop([yade.dem.Cg2_Sphere_Sphere_L6Geom()],[yade.dem.Cp2_FrictMat_FrictPhys(ktDivKn=ktDivKn)],[yade.dem.Law2_L6Geom_FrictPhys_LinEl6(charLen=float('inf') if (useL1Geom or not charLen) else charLen)]),
+		yade.dem.IntraForce([yade.dem.In2_Sphere_ElastMat()]),
+		yade.cld.CLDemRun(stepPeriod=1,compare=True,relTol=1e-5),
 		#yade.core.PyRunner('showEnergies()',100),
 	]
 	yade.qt.View()

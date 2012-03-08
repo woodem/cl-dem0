@@ -49,11 +49,11 @@ import yade.cld
 import yade.log
 import yade.gl
 #yade.log.setLevel('GLViewer',yade.log.TRACE)
-clf=yade.cld.CLDemField()
-clf.sim=sim
-O.scene.fields=[clf]
+O.scene.fields=[yade.cld.CLDemField(sim)]
 nan=float('nan')
-O.scene.loHint=O.scene.hiHint=(nan,nan,nan)
+#O.scene.loHint=O.scene.hiHint=(nan,nan,nan)
 O.scene.engines=[yade.cld.CLDemRun(stepPeriod=1),]
 O.scene.ranges=[yade.gl.Gl1_CLDemField.parRange]
 yade.gl.Gl1_CLDemField.bboxes=False
+
+#O.saveTmp()

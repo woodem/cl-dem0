@@ -10,6 +10,32 @@
 	#define CLDEM_VTK
 #endif
 
+#if 0
+#ifndef YADE_CLDEM
+	#include<boost/archive/binary_oarchive.hpp>
+	#include<boost/archive/binary_iarchive.hpp>
+	// after supported archive types
+	#include<boost/serialization/export.hpp>
+	#include<boost/serialization/vector.hpp>
+#endif
+
+namespace boost {
+	namespace align { struct __attribute__((__aligned__(128))) a128 {};}
+	template<> class type_with_alignment<128> { public: typedef align::a128 type; };
+};
+
+#define _BITWISE_PRIMITIVE(klass) BOOST_IS_BITWISE_SERIALIZABLE(klass);  namespace boost{ namespace serialization{ template<class Archive> void serialize(Archive & ar, klass & obj, const unsigned int version){ throw std::runtime_error("Class " #klass " must be serialized bitwise, not by calling the serialization function (are you serializing to XML?)."); } }}
+#define _BITWISE(klass) _BITWISE_PRIMITIVE(klass); BOOST_CLASS_TRACKING(klass,boost::serialization::track_never)
+	_BITWISE(clDem::Scene)
+	_BITWISE(clDem::Particle)
+	_BITWISE(clDem::Contact)
+	_BITWISE(clDem::CJournalItem)
+	_BITWISE_PRIMITIVE(cl_long2)
+	_BITWISE_PRIMITIVE(clDem::par_id_t)
+#undef _BITWISE
+#undef _BITWISE_PRIMITIVE
+#endif
+
 namespace clDem{
 	struct Simulation{
 		Scene scene;
@@ -27,6 +53,20 @@ namespace clDem{
 		vector<CJournalItem> cJournal; // logging changes in contact arrays so that the collider's internal structures can be updated accordingly
 		vector<par_id_t> clumps;
 		vector<cl_float> bboxes;
+			
+		#if 0
+		friend class boost::serialization::access;
+		template<class ArchiveT> void serialize(ArchiveT & ar, unsigned int version){
+			ar & BOOST_SERIALIZATION_NVP(scene);
+			ar & BOOST_SERIALIZATION_NVP(par);
+			ar & BOOST_SERIALIZATION_NVP(con);
+			ar & BOOST_SERIALIZATION_NVP(conFree);
+			ar & BOOST_SERIALIZATION_NVP(pot);
+			ar & BOOST_SERIALIZATION_NVP(potFree);
+			ar & BOOST_SERIALIZATION_NVP(clumps);
+			ar & BOOST_SERIALIZATION_NVP(bboxes);
+		}
+		#endif
 
 		Simulation(int pNum=-1,int dNum=-1, const string& opts=""){
 			scene=Scene();
@@ -43,12 +83,6 @@ namespace clDem{
 
 		shared_ptr<CpuCollider> cpuCollider;
 
-		#if 0
-			struct Buffers{
-				size_t parSize,conSize,clumpsSize,bboxesSize;
-				cl::Buffer scene,par,con,clumps,bboxes;
-			} bufs;
-		#endif
 		/* read and write fixed-size objects (all async, use queue.finish() to wait) */
 		template<typename T> cl::Buffer writeBuf(const T& obj,bool wait=false){
 			cl::Buffer buf(context,CL_MEM_READ_WRITE,sizeof(T),NULL);
@@ -89,7 +123,6 @@ namespace clDem{
 		py::tuple getBbox(par_id_t id);
 		py::list saveVtk(string prefix, bool compress=true, bool ascii=false);
 	};
-
 };
 
 //static std::vector<Particle>* Simulation_par_get(Simulation* s){ return &(s->par); }
