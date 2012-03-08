@@ -23,7 +23,6 @@ struct Wall{
 // Sphere should come at the end
 enum _shape_enum { Shape_None=0, Shape_Wall, Shape_Sphere };
 
-
 struct Particle;
 static void Particle_init(global struct Particle*);
 
@@ -85,7 +84,7 @@ PARTICLE_FLAG_GET_SET(dofs);
 PARTICLE_FLAG_GET_SET(groups);
 PARTICLE_FLAG_GET_SET(matId);
 
-inline int dof_axis(int axis, int rot){ return 1<<(axis+(rot?3:0)); }
+inline int dof_axis(int axis, bool rot){ return 1<<(axis+(rot?3:0)); }
 constant int par_dofs_trans=7; // 0b0000111
 constant int par_dofs_rot=56;  // 0b0111000
 constant int par_dofs_all=63;  // 0b0111111

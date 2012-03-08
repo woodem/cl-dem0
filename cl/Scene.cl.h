@@ -10,7 +10,7 @@ CLDEM_NAMESPACE_BEGIN();
 struct ElastMat{ Real density, young; };
 inline struct ElastMat ElastMat_new(){ struct ElastMat ret; ret.density=NAN; ret.young=NAN; return ret; }
 
-enum _mat_enum { Mat_ElastMat=1, };
+enum _mat_enum { Mat_None=0, Mat_ElastMat=1, };
 
 struct Material{
 	int flags;
@@ -72,7 +72,8 @@ static string arrName(int arrIx){
 #endif
 
 
-#define SCENE_MAT_NUM 8
+const int SCENE_MAT_NUM=8;
+
 struct Scene{
 	Real t;
 	Real dt;
