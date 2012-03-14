@@ -56,7 +56,7 @@ enum _int_flags {
 	INT_BBOXES=8,
 };
 // dynamic arrays indices
-enum _dynarrays { ARR_CON=0, ARR_CONFREE, ARR_POT, ARR_POTFREE, ARR_CJOURNAL, ARR_NUM };
+enum _dynarrays { ARR_CON=0, ARR_CONFREE, ARR_POT, ARR_POTFREE, ARR_CJOURNAL, ARR_CLUMPS, ARR_NUM };
 
 #ifdef __cplusplus
 static string arrName(int arrIx){
@@ -66,6 +66,7 @@ static string arrName(int arrIx){
 		case ARR_POT: return "POT";
 		case ARR_POTFREE: return "POTFREE";
 		case ARR_CJOURNAL: return "CJOURNAL";
+		case ARR_CLUMPS: return "CLUMPS";
 		default: throw std::logic_error("arrName("+lexical_cast<string>(arrIx)+") not known.");
 	};
 };
@@ -138,6 +139,7 @@ static py::dict Scene_arr_get(struct Scene* s){
 	ret["pot"]=py::make_tuple(s->arrSize[ARR_POT],s->arrAlloc[ARR_POT]);
 	ret["potFree"]=py::make_tuple(s->arrSize[ARR_POTFREE],s->arrAlloc[ARR_POTFREE]);
 	ret["cJournal"]=py::make_tuple(s->arrSize[ARR_CJOURNAL],s->arrAlloc[ARR_CJOURNAL]);
+	ret["clumps"]=py::make_tuple(s->arrSize[ARR_CLUMPS],s->arrAlloc[ARR_CLUMPS]);
 	return ret;
 }
 
@@ -159,14 +161,6 @@ inline bool Scene_particles_may_collide(global struct Scene* s, global struct Pa
 	if((par_groups_get_global(p1) & par_groups_get_global(p2))==0) return false;
 	return true;
 }
-
-/*
-FIXME FIXME FIXME:
-The following routines might fail if array size is changed by one thread and another
-thread in-between claims the fewly-free element in there. Must be solved soon. Also explains why simulations run better on CPUs, where the likelihood of parallel clashes is much smaller.
-*/
-
-//#ifdef __OPENCL_VERSION__
 
 /* try to allocate an additional item in array with index arrIx;
 if the array would overflow, returns -1, but the arrSize will

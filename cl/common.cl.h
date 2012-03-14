@@ -23,6 +23,7 @@
 	#define cl_bool bool
 	#define cl_int int
 	#define cl_ulong ulong
+	#define cl_long long
 	// printf in OpenCL code
 	#ifdef cl_intel_printf
 		#pragma OPENCL EXTENSION cl_intel_printf: enable

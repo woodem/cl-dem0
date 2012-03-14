@@ -31,15 +31,13 @@ for n,m in itertools.product(range(0,N),range(0,M)): # m advances the fastest
 yade.O.scene.dt=sim.scene.dt=.2*sim.pWaveDt();
 
 import yade.cld
-O.scene.fields=[yade.cld.CLDemField(sim)]
-O.scene.engines=[yade.cld.CLDemRun(stepPeriod=1),]
 yade.gl.Gl1_CLDemField.parRange.label='|v|'
-yade.gl.Gl1_CLDemField.conRange.label='|Fn|'
-O.scene.ranges=[yade.gl.Gl1_CLDemField.parRange,yade.gl.Gl1_CLDemField.conRange]
+yade.gl.Gl1_CLDemField.conRange.label='Fn'
 
 O.timingEnabled=True
 import yade.cld
 yade.O.scene=yade.cld.CLDemRun.clDemToYade(sim,stepPeriod=1,relTol=-1e-3)
+O.scene.ranges=[yade.gl.Gl1_CLDemField.parRange,yade.gl.Gl1_CLDemField.conRange]
 
 
 #for i in range(0,300):

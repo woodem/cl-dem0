@@ -33,22 +33,12 @@ namespace clDem{
 		}
 		size_t ret=max(currSize,max((size_t)(1.5*reqSize),reqSize+100));
 		#if 1
-			cerr<<"** ARR_";
-			switch(arrIx){
-				case ARR_CON: cerr<<"CON"; break;
-				case ARR_CONFREE: cerr<<"CONFREE"; break;
-				case ARR_POT: cerr<<"POT"; break;
-				case ARR_POTFREE: cerr<<"CONFREE"; break;
-				case ARR_CJOURNAL: cerr<<"CJOURNAL"; break;
-				default: throw std::logic_error("Simulation.arrNewSize received invalid arrIx parameter "+lexical_cast<string>(arrIx));
-			}
-			cerr<<": "<<currSize<<"→ "<<ret<<" (≥"<<reqSize<<")."<<endl;
+			cerr<<arrName(arrIx)<<": "<<currSize<<"→ "<<ret<<" (≥"<<reqSize<<")."<<endl;
 		#endif
 		return ret;
 	}
 	void Simulation::writeBufs(bool wait){
 		// make sure arrays are not empty
-		clumps.resize(1); // not yet working
 		bboxes.resize(par.size()*6,NAN);
 		if(par.empty()) throw std::runtime_error("There must be some particles (now "+lexical_cast<string>(par.size())+").");
 		cl_long2 no2={-1,-1};
@@ -57,6 +47,7 @@ namespace clDem{
 		ensureArrayNonempty(pot,ARR_POT,this,no2);
 		ensureArrayNonempty(potFree,ARR_POTFREE,this,-1);
 		ensureArrayNonempty(cJournal,ARR_CJOURNAL,this,CJournalItem());
+		ensureArrayNonempty(clumps,ARR_CLUMPS,this,ClumpMember());
 		if(scene.step==-1 && scene.rollback==0){
 			// allow pre-created contacts in the very first step
 			long i;
@@ -73,6 +64,8 @@ namespace clDem{
 		scene.arrAlloc[ARR_POT]=pot.size();
 		scene.arrAlloc[ARR_POTFREE]=potFree.size();
 		scene.arrAlloc[ARR_CJOURNAL]=cJournal.size();
+		// not modified from within the simulation
+		scene.arrAlloc[ARR_CLUMPS]=scene.arrSize[ARR_CLUMPS]=clumps.size();
 
 		// write scene
 		sceneBuf=writeBuf(scene);
@@ -100,7 +93,7 @@ namespace clDem{
 		readVecBuf(pot,bufSize[_pot]);
 		readVecBuf(potFree,bufSize[_potFree]);
 		readVecBuf(cJournal,bufSize[_cJournal]);
-		//readVecBuf(clumps,bufSize[_clumps]); // not changed in the simulation
+		//readVecBuf(clumps,bufSize[_clumps]); // not changed in the simulation, no need to read back
 		readVecBuf(bboxes,bufSize[_bboxes]);
 		if(wait) queue.finish();
 	};
@@ -410,5 +403,52 @@ namespace clDem{
 py::tuple Simulation::getBbox(par_id_t id){
 	if(bboxes.size()<id*6 || id<0) throw std::runtime_error("No bbox defined for particle #"+lexical_cast<string>(id));
 	return py::make_tuple(Vector3r(bboxes[id*6+0],bboxes[id*6+1],bboxes[id*6+2]),Vector3r(bboxes[id*6+3],bboxes[id*6+4],bboxes[id*6+5]));
+}
+
+int Simulation::addClump(vector<Particle>& pp){
+	if(pp.empty()) throw std::runtime_error("Creating clump with zero particles");
+	// mass, static momentum, inertia
+	Real M=0.;
+	Vector3r Sg=Vector3r::Zero();
+	Matrix3r Ig=Matrix3r::Zero();
+	for(const Particle& p: pp){
+		if(par_clumped_get(&p)) throw std::runtime_error("Particle is part of a clump already.");
+		if(par_shapeT_get(&p)==Shape_Clump) throw std::runtime_error("Particle being clumped is itself a clump (not allowed).");
+		Vector3r pos(toEigen(p.pos));
+		Quaternionr ori(toEigen(p.ori));
+		M+=p.mass;
+		Sg+=p.mass*pos;
+		Ig+=inertiaTranslate(inertiaRotate(toEigen(p.inertia).asDiagonal(),ori.conjugate().toRotationMatrix()),p.mass,-1.*pos);
+	}
+	// inertia with global orientation but central position
+	Vector3r cPos=Sg/M;
+	Ig=inertiaTranslate(Ig,-M,cPos); 
+	// find principal axes
+	Eigen::SelfAdjointEigenSolver<Matrix3r> eig(Ig);
+	Quaternionr cOri=Quaternionr(eig.eigenvectors());
+
+	Particle clump;
+	clump.mass=M;
+	clump.inertia=fromEigen(eig.eigenvalues());
+	clump.pos=fromEigen(cPos);
+	clump.ori=fromEigen(cOri);
+	clump.vel=clump.angVel=fromEigen(Vector3r::Zero().eval());
+
+	par_shapeT_set(&clump,Shape_Clump);
+	clump.shape.clump=Clump();
+	clump.shape.clump.ix=clumps.size(); // start at the end of the current clump array
+ 
+	for(const Particle& p: pp){
+		par.push_back(p);   // insert particle into par
+		ClumpMember cm;
+		cm.id=par.size()-1; // last index in par is the inserted particle
+		cm.relPos=fromEigen(cOri.conjugate()*(cPos-toEigen(p.pos)));
+		cm.relOri=fromEigen(cOri.conjugate()*toEigen(p.ori));
+		clumps.push_back(cm);
+	}
+	clumps.push_back(ClumpMember()); // add invalid item as sentinel
+
+	// add the clump itself
+	par.push_back(clump);
 }
 

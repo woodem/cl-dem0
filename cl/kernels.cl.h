@@ -41,7 +41,7 @@ CLDEM_NAMESPACE_END()
 
 
 // all kernels take the same set of arguments, for simplicity in the host code
-#define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int *conFree, global long2* pot, global int *potFree, global struct CJournalItem* cJournal, global int* clumps, global float* bboxes
+#define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int *conFree, global long2* pot, global int *potFree, global struct CJournalItem* cJournal, global struct ClumpMember* clumps, global float* bboxes
 
 #ifdef cl_amd_printf
 	#define PRINT_TRACE(name)
@@ -112,28 +112,25 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	PRINT_TRACE("integrator_P");
 
 	global struct Particle *p=&(par[get_global_id(0)]);
+	if(par_clumped_get_global(p)) return; // clumped particles are handled by the clump itself
 	struct Particle pp=*p;
 	Real dt=scene->dt;
 	Vec3 gravity=scene->gravity;
 	Real damping=scene->damping;
 	Real verletDist=scene->verletDist;
 
+	bool isClump=(par_shapeT_get(&pp)==Shape_Clump);
 	int dofs=par_dofs_get(&pp);
 	Vec3 accel=0., angAccel=0.;
 	// optimize for particles with all translations/rotations (vector ops)
 	// aspherical integration (if p->inertia has the same components)
-#if 0
-	for(int ax=0; ax<3; ax++){
-		if(dofs & dof_axis(ax,false)) ((Real*)(&accel))[ax]+=((Real*)(&p->force))[ax]/p->mass+((Real*)(&scene->gravity))[ax]*p->mass;
-		if(dofs & dof_axis(ax,true ))	((Real*)(&angAccel))[ax]+=((Real*)(&p->torque))[ax]/p->inertia.x;
-	}
-#else
 
 	// use vector ops for particles free in all 3 dofs, and on-eby-one only for those which are partially fixed
 	pp.force+=gravity*pp.mass; // put this up here so that grav appears in the force term
-
 	// some translations are allowed, compute gravity contribution
 	if((dofs & par_dofs_trans)!=0) ADD_ENERGY(scene,grav,-dot(gravity,pp.vel)*pp.mass*dt);
+
+	if(isClump){ Clump_collectFromMembers(&pp,clumps,par); }
 
 	if((dofs&par_dofs_trans)==par_dofs_trans){ // all translations possible, use vector expr
 		accel+=pp.force/pp.mass;
@@ -151,7 +148,6 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 			else ((Real*)(&angAccel))[ax]=0.;
 		}
 	}
-#endif
 	#ifdef DUMP_INTEGRATOR
 		if(dofs!=0) printf("$%ld/%d: v=%v3g, ω=%v3g, F=%v3g, T=%v3g, a=%v3g",scene->step,get_global_id(0),pp.vel,pp.angVel,pp.force,pp.torque,accel);
 	#endif
@@ -173,24 +169,20 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 		if(dofs!=0) printf(", aDamp=%v3g, vNew=%v3g, posNew=%v3g\n",accel,pp.vel,pp.pos);
 	#endif
 	pp.ori=Quat_multQ(Quat_fromRotVec(pp.angVel*dt),pp.ori); // checks automatically whether |rotVec|==0
-	//
-	// reset forces on particles
-	// pp.force=pp.torque=(Vec3)0.;
 
-	// is this safe for multi-threaded? is the new value always going to be written?
-	// it is not read until in the next kernel
-	#if 0
-		printf("#%ld boxPos=%g\n",get_global_id(0),p->bboxPos.s0);
-		printf("#%ld boxPos=%g\n",get_global_id(0),p->bboxPos.s1);
-		printf("#%ld boxPos=%g\n",get_global_id(0),p->bboxPos.s2);
-	#endif
-	if(verletDist>=0 && (Vec3_sqNorm(pp.pos-pp.bboxPos)>pown(verletDist,2) || isnan(pp.bboxPos.s0))) scene->updateBboxes=true;
+	if(isClump){
+		// this checks bboxes as well, and sets updateBboxes if necessary
+		Clump_applyToMembers(&pp,clumps,par);
+	} else {
+		if(verletDist>=0 && (Vec3_sqNorm(pp.pos-pp.bboxPos)>pown(verletDist,2) || isnan(pp.bboxPos.s0))) scene->updateBboxes=true;
+	}
 
 	/* write back */
 	p->pos=pp.pos;
 	p->ori=pp.ori;
 	p->vel=pp.vel;
 	p->angVel=pp.angVel;
+	// reset forces
 	p->force=(Vec3)0.;
 	p->torque=(Vec3)0.;
 }
@@ -202,32 +194,38 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
 	if(Scene_skipKernel(scene,substep)) return;
 	PRINT_TRACE("updateBboxes_P");
 
+	// not immediate since all threads must finish
 	par_id_t id=get_global_id(0);
+	if(id==0) Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE | INT_NOT_DESTRUCTIVE | INT_BBOXES);
+
 	global struct Particle *p=&par[id];
 	struct Particle pp=*p;
+	Real verletDist=scene->verletDist;
 	Vec3 mn, mx;
 	switch(par_shapeT_get(&pp)){
+		case Shape_Clump:
+			mn=mx=pp.pos; // if the collider handles NaN's, then clumps will have no bboxes at all
+			verletDist=0.; // no need to enlarge, no collisions are possible anyway
+			break;
+		case Shape_Wall:
+			mn=(Vec3)-INFINITY; mx=(Vec3)INFINITY;
+			if(pp.shape.wall.axis==0) mn.s0=mx.s0=pp.pos.s0;
+			else if(pp.shape.wall.axis==1) mn.s1=mx.s1=pp.pos.s1;
+			else if(pp.shape.wall.axis==2) mn.s2=mx.s2=pp.pos.s2;
+			else /* error */ printf("ERROR: #%ld is a wall with axis=%d!\n",id,pp.shape.wall.axis);
+			break;
 		case Shape_Sphere:
 			mn=pp.pos-(Vec3)(pp.shape.sphere.radius);
 			mx=pp.pos+(Vec3)(pp.shape.sphere.radius);
 			break;
-		case Shape_Wall:
-			mn=(Vec3)-INFINITY; mx=(Vec3)INFINITY;
-			if(pp.shape.wall.axis==0) mn.s0=mx.s0=p->pos.s0;
-			else if(pp.shape.wall.axis==1) mn.s1=mx.s1=p->pos.s1;
-			else if(pp.shape.wall.axis==2) mn.s2=mx.s2=p->pos.s2;
-			else /* error */ printf("ERROR: #%ld is a wall with axis=%d!\n",id,pp.shape.wall.axis);
 		default: /* */;
 	}
 	p->bboxPos=pp.pos;
-	mn-=(Vec3)scene->verletDist;
-	mx+=(Vec3)scene->verletDist;
+	mn-=(Vec3)verletDist;
+	mx+=(Vec3)verletDist;
 	bboxes[id*6+0]=mn.x; bboxes[id*6+1]=mn.y; bboxes[id*6+2]=mn.z;
 	bboxes[id*6+3]=mx.x; bboxes[id*6+4]=mx.y; bboxes[id*6+5]=mx.z;
 	//printf("%ld: %v3g±(%g+%g) %v3g %v3g\n",id,p->pos,scene->verletDist,p->shape.sphere.radius,mn,mx);
-
-	// not immediate since all threads must finish
-	if(id==0) Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE | INT_NOT_DESTRUCTIVE | INT_BBOXES);
 }
 
 kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
@@ -258,7 +256,7 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 			if(fabs(((Real*)(&(p2.pos)))[p1.shape.wall.axis]-((Real*)(&(p1.pos)))[p1.shape.wall.axis])>=p2.shape.sphere.radius) return;
 			break;
 		}
-		default: printf("ERROR: Invalid shape indices in pot ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, sphere+wall=%d)!\n",ids.s0,ids.s1,par_shapeT_get(&p1),par_shapeT_get(&p2),SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall)); return;
+		default: printf("ERROR: Invalid shape indices in pot ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, wall+sphere=%d)!\n",ids.s0,ids.s1,par_shapeT_get(&p1),par_shapeT_get(&p2),SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall)); return;
 	};
 	#ifdef CON_LOG
 		printf("Creating ##%ld+%ld\n",ids.s0,ids.s1);
@@ -279,7 +277,8 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	// not immediate, since other work-items might increase the required capacity yet more
 	if(ixPotFree<0){
 		//printf("!! potfree insufficient, size=%d, alloc=%d\n",scene->arrSize[ARR_POTFREE],scene->arrAlloc[ARR_POTFREE]);
-		Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
+		Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return;
+	}
 	potFree[ixPotFree]=cid;
 	
 	// add to con
@@ -299,11 +298,6 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 
 	struct CJournalItem i; i.ids=ids; i.index=ixCon; i.what=CJOURNAL_POT2CON;
 	cJournal[ixCJournal]=i;
-
-	#if 0
-		CJournalItem_init(&(cJournal[ixCJournal]));
-		cJournal[ixCJournal].ids=ids; cJournal[ixCJournal].index=ixCon; cJournal[ixCJournal].what=CJOURNAL_POT2CON;
-	#endif
 };
 
 bool Bbox_overlap(global float* _A, global float* _B){
@@ -422,7 +416,7 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 				// printf("d1=%f, d2=%f, A=%f, E1=%f, E2=%f, kN=%f\n",d1,d2,A,m1->mat.elast.young,m2->mat.elast.young,c->phys.normPhys.kN);
 				break;
 			}
-			default: /* error */ ;
+			default: printf("ERROR: ##%ld+%ld has unknown material index combination %d+%d",c.ids.s0,c.ids.s1,matT1,matT2);
 		}
 	}
 	/* contact law */
@@ -460,7 +454,7 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 				#endif
 				break;
 			}
-			default: /* error */ ;
+			default: printf("ERROR: ##%ld+%ld has unknown geomT+physT index combination %d+%d",c.ids.s0,c.ids.s1,geomT,physT);
 		}
 		// wrice contact back to global mem
 		con[cid]=c;

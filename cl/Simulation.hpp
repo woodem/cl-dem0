@@ -10,6 +10,11 @@
 	#define CLDEM_VTK
 #endif
 
+#include<Eigen/Core>
+#include<Eigen/Geometry>
+#include<Eigen/Eigenvalues>
+
+
 #if 0
 #ifndef YADE_CLDEM
 	#include<boost/archive/binary_oarchive.hpp>
@@ -37,6 +42,18 @@ namespace boost {
 #endif
 
 namespace clDem{
+	typedef Eigen::Matrix<Real,3,3> Matrix3r;
+	typedef Eigen::Matrix<Real,3,1> Vector3r;
+	typedef Eigen::Quaternion<Real> Quaternionr;
+
+	inline Vector3r toEigen(const Vec3& v){ return Vector3r(v[0],v[1],v[2]); }
+	inline Quaternionr toEigen(const Quat& q){ return Quaternionr(q[3],q[0],q[1],q[2]); }
+	inline Matrix3r toEigen(const Mat3& m){ Matrix3r ret; ret<<m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8]; return ret; }
+
+	inline Vec3 fromEigen(const Vector3r& v){ return Vec3_set(v.x(),v.y(),v.z()); }
+	inline Quat fromEigen(const Quaternionr& q){ return Quat_set_wxyz(q.w(),q.x(),q.y(),q.z()); }
+	inline Mat3 fromEigen(const Matrix3r& m){ return Mat3_set(m(0,0),m(0,1),m(0,2),m(1,0),m(1,1),m(1,2),m(2,0),m(2,1),m(2,2)); }
+
 	struct Simulation{
 		Scene scene;
 		cl::Buffer sceneBuf;
@@ -51,7 +68,8 @@ namespace clDem{
 		vector<cl_long2> pot; // potential contacts (only the id1,id2-tuple)
 		vector<cl_int> potFree; // free slots in pot
 		vector<CJournalItem> cJournal; // logging changes in contact arrays so that the collider's internal structures can be updated accordingly
-		vector<par_id_t> clumps;
+		vector<ClumpMember> clumps;
+
 		vector<cl_float> bboxes;
 			
 		#if 0
@@ -133,6 +151,14 @@ namespace clDem{
 		Real pWaveDt();
 		py::tuple getBbox(par_id_t id);
 		py::list saveVtk(string prefix, bool compress=true, bool ascii=false);
+		int addClump(vector<Particle>&);
+
+		Matrix3r inertiaTranslate(const Matrix3r& I, const Real m, const Vector3r& off){
+			return I+m*(off.dot(off)*Matrix3r::Identity()-off*off.transpose());
+		}
+		Matrix3r inertiaRotate(const Matrix3r& I, const Matrix3r& T){
+			return T.transpose()*I*T;
+		}
 	};
 };
 
@@ -161,6 +187,7 @@ void Simulation_hpp_expose(){
 		#endif
 		.def("pWaveDt",&Simulation::pWaveDt)
 		.def("getBbox",&Simulation::getBbox)
+		.def("addClump",&Simulation::addClump)
 	;
 }
 

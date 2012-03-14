@@ -20,8 +20,25 @@ struct Wall{
 	#endif
 };
 
+struct Clump{
+	cl_long ix; // index in the clumps array
+	#ifdef __cplusplus
+		Clump(): ix(-1){};
+	#endif
+};
+
+// stored in the clumps array
+struct ClumpMember{
+	par_id_t id;
+	Vec3 relPos;
+	Quat relOri;
+	#ifdef __cplusplus
+		ClumpMember(): id(-1){}
+	#endif
+};
+
 // Sphere should come at the end
-enum _shape_enum { Shape_None=0, Shape_Wall, Shape_Sphere };
+enum _shape_enum { Shape_None=0, Shape_Clump, Shape_Wall, Shape_Sphere };
 
 struct Particle;
 static void Particle_init(struct Particle*);
@@ -38,6 +55,7 @@ struct Particle{
 		UNION_BITWISE_CTORS(_shape)
 		struct Sphere sphere;
 		struct Wall wall;
+		struct Clump clump;
 	} AMD_UNION_ALIGN_BUG_WORKAROUND() shape;
 	int mutex;
 	// needed for boost::python
@@ -111,6 +129,31 @@ static void Particle_init(struct Particle* p){
 	par_matId_set(p,0);
 }
 
+#ifdef __OPENCL_VERSION__
+
+void Clump_collectFromMembers(struct Particle* C, global struct ClumpMember* clumps, global struct Particle* par){
+	// go through the clumps array from given index until an invalid item is found
+	for(size_t i=C->shape.clump.ix; clumps[i].id>=0; i++){
+		struct Particle cp=par[clumps[i].id];
+		C->force+=cp.force;
+		C->torque+=cp.torque+cross(cp.pos-C->pos,cp.force);
+	}
+}
+
+void Clump_applyToMembers(struct Particle* C, global struct ClumpMember* clumps, global struct Particle* par){
+	for(size_t i=C->shape.clump.ix; clumps[i].id>=0; i++){
+		// work on the local copy instead?
+		const struct ClumpMember cm=clumps[i];
+		global struct Particle* cp=&(par[cm.id]);
+		cp->pos=C->pos+Quat_rotate(C->ori,cm.relPos);
+		cp->ori=Quat_multQ(C->ori,cm.relOri);
+		cp->vel=C->vel+cross(C->angVel,cp->pos-C->pos);
+		cp->angVel=C->angVel;
+	}
+}
+
+#endif
+
 
 CLDEM_NAMESPACE_END();
 
@@ -150,6 +193,10 @@ namespace clDem{
 		void Particle_cl_h_expose(){
 			py::class_<Sphere>("Sphere").PY_RW(Sphere,radius);
 			py::class_<Wall>("Wall").PY_RW(Wall,axis).PY_RW(Wall,sense);
+			py::class_<Clump>("Clump").add_property("ix",&Clump::ix);
+
+			py::class_<ClumpMember>("ClumpMember").add_property("id",&ClumpMember::id).PY_RWV(ClumpMember,relPos).PY_RWV(ClumpMember,relOri);
+			VECTOR_SEQ_CONV(ClumpMember);
 
 			py::class_<Particle>("Particle")//.def("__init__",py::make_constructor(Particle_new))
 				.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,force).PY_RWV(Particle,torque).PY_RWV(Particle,bboxPos)
