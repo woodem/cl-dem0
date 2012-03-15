@@ -72,8 +72,8 @@ static string arrName(int arrIx){
 };
 #endif
 
-
-const int SCENE_MAT_NUM=8;
+#define SCENE_MAT_NUM 8
+constant int SCENE_MAT_NUM_=SCENE_MAT_NUM;
 
 struct Scene{
 	Real t;
