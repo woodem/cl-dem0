@@ -15,15 +15,16 @@
 #define AMD_UNION_ALIGN_BUG_WORKAROUND() __attribute__((aligned(128)))
 
 
+
 #ifdef __OPENCL_VERSION__
 	#define static
-	#define cl_short2 short2
-	#define cl_short short
-	#define cl_long2 long2
-	#define cl_bool bool
-	#define cl_int int
-	#define cl_ulong ulong
-	#define cl_long long
+	typedef short2 cl_short2;
+	typedef short cl_short;
+	typedef long2 cl_long2;
+	typedef bool cl_bool;
+	typedef int cl_int;
+	typedef ulong cl_ulong;
+	typedef long cl_long;
 	// printf in OpenCL code
 	#ifdef cl_intel_printf
 		#pragma OPENCL EXTENSION cl_intel_printf: enable
@@ -45,13 +46,6 @@
 	template<typename T> T atom_cmpxchg(T* p, const T& cmp, const T& val){ T old=*p; *p=(old==cmp?val:old); return old; }
 	template<typename T> T atom_xchg(T* p, const T& val){ T old=*p; *p=val; return old; }
 	template<typename T> T atom_inc(T* p){ T old=*p; (*p)++; return old; }
-#endif
-
-
-#ifdef __cplusplus
-	#include<Eigen/Core>
-	#include<Eigen/Geometry>
-	typedef Eigen::Matrix<Real,3,1> Vector3r;
 #endif
 
 
@@ -82,7 +76,28 @@ CLDEM_NAMESPACE_BEGIN()
 
 typedef cl_short2 flagSpec; // offset and length, in bits
 typedef long par_id_t;
-typedef cl_long2 par_id2_t;
+
+#if 0
+	/* strong typedef for cl_long2, so that it can be serialized easily */
+	struct par_id2_t{
+		typedef cl_long Scalar;
+		cl_long2 t;
+		cl_long &x, &y, &s0, &s1;
+		par_id2_t(): x(t.x), y(t.y), s0(t.x), s1(t.y){}
+		par_id2_t(const par_id2_t& other): t(other.t), x(t.x), y(t.y), s0(t.x), s1(t.y){}
+		par_id2_t(std::initializer_list<Scalar> l): x(t.x), y(t.y), s0(t.x), s1(t.y){ assert(l.size()==2); int i=0; for(auto n: l) ((Scalar*)this)[i++]=n;  };
+		par_id2_t(cl_long xx, cl_long yy): x(t.x), y(t.y), s0(t.x), s1(t.y){ t.x=xx; t.y=yy; }
+		par_id2_t& operator=(const par_id2_t& other){ t=other.t; return *this; }
+		par_id2_t& operator=(const cl_long2& other){ t=other; return *this; }
+		CLDEM_SERIALIZE_ATTRS(/*no regular attrs*/,
+			// references don't get saved properly somehow, so work it around here:
+			ar&boost::serialization::make_nvp("x",t.x);
+			ar&boost::serialization::make_nvp("y",t.y);
+		);
+	};
+#else
+	typedef cl_long2 par_id2_t;
+#endif
 
 inline int flags_get(const int flags, const flagSpec spec){ return (flags>>spec.x)&((1<<spec.y)-1); }
 inline void flags_set_global(global int *flags, const flagSpec spec, int val){

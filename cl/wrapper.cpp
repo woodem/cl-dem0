@@ -1,16 +1,6 @@
 #include"Simulation.hpp"
 #include"Collider.cl.h"
-
-#include<Eigen/Core>
-#include<Eigen/Geometry>
-/* miniEigen types */
-typedef double Real;
-typedef Eigen::Matrix<int,2,1> Vector2i;
-typedef Eigen::Matrix<Real,3,1> Vector3r;
-typedef Eigen::Matrix<Real,3,3> Matrix3r;
-typedef Eigen::Quaternion<Real> Quaternionr;
-
-
+#include"common.cl.h"
 
 
 template<typename T> struct get_scalar{ typedef typename T::Scalar type; };
@@ -58,16 +48,19 @@ BOOST_PYTHON_MODULE(_clDem){
 	*/
 
 	py::to_python_converter<cl_long2,custom_clType_to_eigType<cl_long2,Vector2i,2>>();
+	py::to_python_converter<par_id2_t,custom_clType_to_eigType<par_id2_t,Vector2i,2>>();
 	py::to_python_converter<Vec3    ,custom_clType_to_eigType<Vec3,Vector3r,3>>();
 	py::to_python_converter<Quat    ,custom_clType_to_eigType<Quat,Quaternionr,4>>();
 	py::to_python_converter<Mat3    ,custom_clType_to_eigType<Mat3,Matrix3r,9>>();
 
 	custom_clType_from_eigType<cl_long2,Vector2i,2>();
+	custom_clType_from_eigType<par_id2_t,Vector2i,2>();
 	custom_clType_from_eigType<Vec3,Vector3r,3>();
 	custom_clType_from_eigType<Mat3,Matrix3r,9>();
 	custom_clType_from_eigType<Quat,Quaternionr,4>();
 
 	VECTOR_SEQ_CONV(cl_long2);
+	VECTOR_SEQ_CONV(par_id2_t);
 	VECTOR_SEQ_CONV(int);
 
 	py::class_<std::vector<cl_float>>("FloatList").def(py::vector_indexing_suite<std::vector<cl_float>>());

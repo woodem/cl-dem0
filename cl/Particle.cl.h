@@ -2,6 +2,7 @@
 #define _PARTICLE_CL_H_
 
 #include"common.cl.h"
+#include"serialization.cl.h"
 
 CLDEM_NAMESPACE_BEGIN();
 
@@ -10,6 +11,7 @@ struct Sphere{
 	#ifdef __cplusplus
 		Sphere(): radius(NAN) {}
 	#endif
+	CLDEM_SERIALIZE_ATTRS((radius),/* */);
 };
 
 struct Wall{
@@ -18,6 +20,7 @@ struct Wall{
 	#ifdef __cplusplus
 		Wall(): axis(-1), sense(0){}
 	#endif
+	CLDEM_SERIALIZE_ATTRS((axis)(sense),/* */);
 };
 
 struct Clump{
@@ -25,6 +28,7 @@ struct Clump{
 	#ifdef __cplusplus
 		Clump(): ix(-1){};
 	#endif
+	CLDEM_SERIALIZE_ATTRS((ix),/* */);
 };
 
 // stored in the clumps array
@@ -35,6 +39,7 @@ struct ClumpMember{
 	#ifdef __cplusplus
 		ClumpMember(): id(-1){}
 	#endif
+	CLDEM_SERIALIZE_ATTRS((id)(relPos)(relOri),/* */);
 };
 
 // Sphere should come at the end
@@ -42,6 +47,7 @@ enum _shape_enum { Shape_None=0, Shape_Clump, Shape_Wall, Shape_Sphere };
 
 struct Particle;
 static void Particle_init(struct Particle*);
+int par_shapeT_get(const struct Particle* p);
 
 // http://gpu.doxos.eu/trac/wiki/OpenCLDataStructures
 struct Particle{
@@ -58,6 +64,15 @@ struct Particle{
 		struct Clump clump;
 	} AMD_UNION_ALIGN_BUG_WORKAROUND() shape;
 	int mutex;
+	CLDEM_SERIALIZE_ATTRS((flags)(pos)(vel)(angVel)(bboxPos)(ori)(inertia)(mass)(force)(torque),
+		switch(par_shapeT_get(this)){
+			case Shape_None: break;
+			case Shape_Sphere: ar & boost::serialization::make_nvp("sphere",shape.sphere); break;
+			case Shape_Wall: ar & boost::serialization::make_nvp("wall",shape.wall); break;
+			case Shape_Clump: ar & boost::serialization::make_nvp("clump",shape.clump); break;
+			default: throw std::runtime_error("Invalid shapeT value at (de)serialization.");
+		};
+	);
 	// needed for boost::python
 	#ifdef __cplusplus
 		Particle(){ Particle_init(this); }
@@ -158,6 +173,7 @@ void Clump_applyToMembers(struct Particle* C, global struct ClumpMember* clumps,
 CLDEM_NAMESPACE_END();
 
 #ifdef __cplusplus
+
 namespace clDem{
 	// needed for py::indexing_suite
 		inline bool operator==(const Particle& a, const Particle& b){ return memcmp(&a,&b,sizeof(Particle))==0; }	

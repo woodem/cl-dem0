@@ -31,7 +31,17 @@ sim.scene.dt=.2*sim.pWaveDt()
 for i in range(0,5):
 	sim.run(10)
 	print '10 steps done'
-#	print 'Saved',sim.saveVtk('/tmp/chain',compress=False,ascii=True)
+	print 'Saved',sim.saveVtk('/tmp/chain',compress=False,ascii=True)
 
+print sim.scene
+print sim.scene.dt
+print 'saving'
+sim.save('/tmp/a.xml')
+print 'saved, loading'
+sim2=clDem.Simulation(pNum,dNum)
+sim2.load('/tmp/a.xml')
+print 'loaded'
+print sim2.scene
+print sim2.scene.dt
 #clDem.briefOutput()
 #clDem.showSim(sim)

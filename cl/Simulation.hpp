@@ -1,5 +1,9 @@
 #pragma once
 
+#include"common.cl.h"
+#include"serialization.cl.h"
+#include"ObjectIO.hpp"
+
 #include"Particle.cl.h"
 #include"Contact.cl.h"
 #include"Scene.cl.h"
@@ -10,50 +14,7 @@
 	#define CLDEM_VTK
 #endif
 
-#include<Eigen/Core>
-#include<Eigen/Geometry>
-#include<Eigen/Eigenvalues>
-
-
-#if 0
-#ifndef YADE_CLDEM
-	#include<boost/archive/binary_oarchive.hpp>
-	#include<boost/archive/binary_iarchive.hpp>
-	// after supported archive types
-	#include<boost/serialization/export.hpp>
-	#include<boost/serialization/vector.hpp>
-#endif
-
-namespace boost {
-	namespace align { struct __attribute__((__aligned__(128))) a128 {};}
-	template<> class type_with_alignment<128> { public: typedef align::a128 type; };
-};
-
-#define _BITWISE_PRIMITIVE(klass) BOOST_IS_BITWISE_SERIALIZABLE(klass);  namespace boost{ namespace serialization{ template<class Archive> void serialize(Archive & ar, klass & obj, const unsigned int version){ throw std::runtime_error("Class " #klass " must be serialized bitwise, not by calling the serialization function (are you serializing to XML?)."); } }}
-#define _BITWISE(klass) _BITWISE_PRIMITIVE(klass); BOOST_CLASS_TRACKING(klass,boost::serialization::track_never)
-	_BITWISE(clDem::Scene)
-	_BITWISE(clDem::Particle)
-	_BITWISE(clDem::Contact)
-	_BITWISE(clDem::CJournalItem)
-	_BITWISE_PRIMITIVE(cl_long2)
-	_BITWISE_PRIMITIVE(clDem::par_id_t)
-#undef _BITWISE
-#undef _BITWISE_PRIMITIVE
-#endif
-
 namespace clDem{
-	typedef Eigen::Matrix<Real,3,3> Matrix3r;
-	typedef Eigen::Matrix<Real,3,1> Vector3r;
-	typedef Eigen::Quaternion<Real> Quaternionr;
-
-	inline Vector3r toEigen(const Vec3& v){ return Vector3r(v[0],v[1],v[2]); }
-	inline Quaternionr toEigen(const Quat& q){ return Quaternionr(q[3],q[0],q[1],q[2]); }
-	inline Matrix3r toEigen(const Mat3& m){ Matrix3r ret; ret<<m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8]; return ret; }
-
-	inline Vec3 fromEigen(const Vector3r& v){ return Vec3_set(v.x(),v.y(),v.z()); }
-	inline Quat fromEigen(const Quaternionr& q){ return Quat_set_wxyz(q.w(),q.x(),q.y(),q.z()); }
-	inline Mat3 fromEigen(const Matrix3r& m){ return Mat3_set(m(0,0),m(0,1),m(0,2),m(1,0),m(1,1),m(1,2),m(2,0),m(2,1),m(2,2)); }
-
 	struct Simulation{
 		Scene scene;
 		cl::Buffer sceneBuf;
@@ -65,32 +26,22 @@ namespace clDem{
 		vector<Particle> par;
 		vector<Contact> con;
 		vector<cl_int> conFree; // free slots in con
-		vector<cl_long2> pot; // potential contacts (only the id1,id2-tuple)
+		vector<par_id2_t> pot; // potential contacts (only the id1,id2-tuple)
 		vector<cl_int> potFree; // free slots in pot
 		vector<CJournalItem> cJournal; // logging changes in contact arrays so that the collider's internal structures can be updated accordingly
 		vector<ClumpMember> clumps;
 
 		vector<cl_float> bboxes;
 			
-		#if 0
-		friend class boost::serialization::access;
-		template<class ArchiveT> void serialize(ArchiveT & ar, unsigned int version){
-			ar & BOOST_SERIALIZATION_NVP(scene);
-			ar & BOOST_SERIALIZATION_NVP(par);
-			ar & BOOST_SERIALIZATION_NVP(con);
-			ar & BOOST_SERIALIZATION_NVP(conFree);
-			ar & BOOST_SERIALIZATION_NVP(pot);
-			ar & BOOST_SERIALIZATION_NVP(potFree);
-			ar & BOOST_SERIALIZATION_NVP(clumps);
-			ar & BOOST_SERIALIZATION_NVP(bboxes);
-		}
-		#endif
-
 		// numerical parameters
 		bool trackEnergy;
 		Real ktDivKn;
 		bool breakTension;
 		Real charLen;
+
+		CLDEM_SERIALIZE_ATTRS(/*binary*/(scene)(trackEnergy)(ktDivKn)(breakTension)(charLen)/*other*/(par)(con)(conFree)(pot)(potFree)(cJournal)(clumps)(bboxes)(cpuCollider),/*otherCode*/);
+
+
 
 		Simulation(int pNum=-1,int dNum=-1, bool _trackEnergy=false, Real _ktDivKn=NAN, bool _breakTension=false, Real _charLen=NAN, const string& _opts=""): trackEnergy(_trackEnergy), ktDivKn(_ktDivKn), breakTension(_breakTension), charLen(_charLen)	{
 			scene=Scene();
@@ -103,6 +54,9 @@ namespace clDem{
 			initCl(pNum,dNum,opts);
 			cpuCollider=make_shared<CpuCollider>();
 		}
+
+		void save(const string& s){ ObjectIO::save(s,"cldem",*this); }
+		void load(const string& s){ ObjectIO::load(s,"cldem",*this); }
 
 		cl::Platform platform;
 		cl::Device device;
@@ -188,6 +142,8 @@ void Simulation_hpp_expose(){
 		.def("pWaveDt",&Simulation::pWaveDt)
 		.def("getBbox",&Simulation::getBbox)
 		.def("addClump",&Simulation::addClump)
+		.def("save",&Simulation::save)
+		.def("load",&Simulation::load)
 	;
 }
 

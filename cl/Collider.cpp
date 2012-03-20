@@ -49,16 +49,18 @@ void CpuCollider::clearSimPot(){
 // add new potential contact
 // NB: does not check if the contact is not already present
 void CpuCollider::addPot(par_id_t id1, par_id_t id2, bool useFree){
-	cl_long2 ids={id1,id2};
 	// use the same logic as kernels to find a free slot in pot
 	long ix=-1;
 	if(useFree) ix=Scene_arr_fromFreeArr_or_append(scene,sim->potFree.data(),ARR_POTFREE,ARR_POT,/*shrink*/true);
+	par_id2_t ids={id1,id2};
 	if(ix<0){
 		sim->pot.push_back(ids);
 		scene->arrSize[ARR_POT]=sim->pot.size();
 		ix=sim->pot.size()-1;
 	}
-	else{ sim->pot[ix]=ids; }
+	else{
+		sim->pot[ix]=par_id2_t(ids);
+	}
 	//
 	add(id1,id2,ConLoc(ix,/*isReal*/false));
 	COLL_DBG("* new pot. ##"<<id1<<"+"<<id2<<" @ pot["<<ix<<"] ("<<scene->arrSize[ARR_POT]<<"/"<<scene->arrAlloc[ARR_POT]<<")");
@@ -67,10 +69,10 @@ void CpuCollider::addPot(par_id_t id1, par_id_t id2, bool useFree){
 void CpuCollider::delPot(par_id_t id1, par_id_t id2, ConLoc* cl){
 	assert(find(id1,id2)==cl);
 	assert(!cl->isReal);
-	const cl_long2& ids=sim->pot[cl->ix];
+	const par_id2_t& ids=sim->pot[cl->ix];
 	assert(min(id1,id2)==min(ids.s0,ids.s1) && max(id1,id2)==max(ids.s0,ids.s1));
 	// remove from pot
-	cl_long2 no2={-1,-1};
+	par_id2_t no2={-1,-1};
 	sim->pot[cl->ix]=no2;
 	// add to potFree; this changes the element atomically to 0
 	long ixPotFree=Scene_arr_findNegative_or_append(scene,ARR_POTFREE,sim->potFree.data());
@@ -179,7 +181,8 @@ void CpuCollider::initialStep(){
 	}
 
 	if(sim->pot.empty()){
-		cl_long2 no2={-1,-1}; sim->pot.push_back(no2);
+		par_id2_t no2={-1,-1};
+		sim->pot.push_back(no2);
 		scene->arrSize[ARR_POT]=0;
 		scene->arrAlloc[ARR_POT]=1;
 	} else {
@@ -242,7 +245,7 @@ void CpuCollider::checkConsistency(){
 		for(const auto& id2_cl: cMap[id1]){
 			const long& id2=id2_cl.first;
 			const ConLoc& cl=id2_cl.second;
-			cl_long2 s2=(cl.isReal?sim->con[cl.ix].ids:sim->pot[cl.ix]);
+			par_id2_t s2=(cl.isReal?sim->con[cl.ix].ids:sim->pot[cl.ix]);
 			if(min(id1,id2)!=min(s2.s0,s2.s1) || max(id1,id2)!=max(s2.s0,s2.s1)) throw std::runtime_error("Inconsistency: "+string(cl.isReal?"con":"pot")+"["+lexical_cast<string>(cl.ix)+"] should be "+ids2str(id1,id2)+", is "+ids2str(s2));
 		}
 	}
@@ -262,7 +265,7 @@ void CpuCollider::checkConsistency(){
 		}
 	}
 	for(size_t i=0; i<sim->pot.size(); i++){
-		const cl_long2& ids=sim->pot[i];
+		const par_id2_t& ids=sim->pot[i];
 		string potStr="pot["+lexical_cast<string>(i)+"]";
 		if(i>=scene->arrSize[ARR_POT]){
 			if(ids.s0>=0 || ids.s1>=0) throw std::runtime_error("Inconsistency: "+potStr+" is unused and should have ids (-1,-1), has "+ids2str(ids));
@@ -303,7 +306,7 @@ void CpuCollider::checkConsistency(){
 		if(c.ids.s0>=0 && conFree.count(i)>0) throw std::runtime_error("Inconsistency: con["+lexical_cast<string>(i)+"] is "+ids2str(c.ids)+", but is in conFree");
 	}
 	for(size_t i=0; i<scene->arrSize[ARR_POT]; i++){
-		const cl_long2& ids=sim->pot[i];
+		const par_id2_t& ids=sim->pot[i];
 		if(ids.s0<0 && potFree.count(i)==0) throw std::runtime_error("Inconsistency: pot["+lexical_cast<string>(i)+"] is free, but not in potFree");
 		if(ids.s0>=0 && potFree.count(i)>0) throw std::runtime_error("Inconsistency: pot["+lexical_cast<string>(i)+"] is "+ids2str(ids)+", but is in potFree");
 	}

@@ -49,7 +49,7 @@ import yade.log
 import yade.gl
 from yade import timing
 if 1: # run on both
-	O.scene=yade.cld.CLDemRun.clDemToYade(sim,stepPeriod=10,relTol=-1)
+	O.scene=yade.cld.CLDemRun.clDemToYade(sim,stepPeriod=20,relTol=-1)
 	#O.timingEnabled=True
 	# remove last engine and the clDem field
 	#O.scene.engines=O.scene.engines[0:-1]
@@ -60,4 +60,5 @@ else: # run via OpenCL only
 #O.scene.ranges=[yade.gl.Gl1_CLDemField.parRange]
 yade.gl.Gl1_CLDemField.bboxes=False
 
-#O.saveTmp()
+O.saveTmp()
+O.save('/tmp/a.xml')

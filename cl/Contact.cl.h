@@ -2,6 +2,7 @@
 #define _CONTACT_CL_H_
 
 #include"common.cl.h"
+#include"serialization.cl.h"
 
 CLDEM_NAMESPACE_BEGIN();
 
@@ -12,6 +13,7 @@ struct L1Geom{
 #ifdef __cplusplus
 	L1Geom(){ L1Geom_init(this); }
 #endif
+	CLDEM_SERIALIZE_ATTRS((uN),/**/);
 };
 inline void L1Geom_init(struct L1Geom* obj){
 	obj->uN=NAN;
@@ -25,6 +27,7 @@ struct L6Geom{
 #ifdef __cplusplus
 	L6Geom(){ L6Geom_init(this); }
 #endif
+	CLDEM_SERIALIZE_ATTRS((uN)(vel)(angVel),/**/);
 };
 inline void L6Geom_init(struct L6Geom* obj){
 	obj->uN=NAN;
@@ -40,6 +43,7 @@ struct NormPhys{
 	#ifdef __cplusplus
 		NormPhys(){ NormPhys_init(this); }
 	#endif
+	CLDEM_SERIALIZE_ATTRS((kN),/**/);
 };
 inline void NormPhys_init(struct NormPhys* obj){
 	obj->kN=NAN;
@@ -49,6 +53,8 @@ enum _phys_enum { Phys_None=0, Phys_NormPhys=1, };
 
 struct Contact;
 static void Contact_init(struct Contact *c);
+int con_geomT_get(const struct Contact*);
+int con_physT_get(const struct Contact*);
 
 struct Contact{
 	#ifdef __cplusplus
@@ -68,6 +74,19 @@ struct Contact{
 		UNION_BITWISE_CTORS(_phys)
 		struct NormPhys normPhys;
 	}  AMD_UNION_ALIGN_BUG_WORKAROUND() phys;
+	CLDEM_SERIALIZE_ATTRS((flags)(ids)(pos)(ori)(force)(torque),
+		switch(con_geomT_get(this)){
+			case Geom_None: break;
+			case Geom_L1Geom: ar&boost::serialization::make_nvp("l1g",geom.l1g); break;
+			case Geom_L6Geom: ar&boost::serialization::make_nvp("l6g",geom.l6g); break;
+			default: throw std::runtime_error("Invalid geomT value at (de)serialization.");
+		}
+		switch(con_physT_get(this)){
+			case Phys_None: break;
+			case Phys_NormPhys: ar&boost::serialization::make_nvp("normPhys",phys.normPhys); break;
+			default: throw std::runtime_error("Invalid physT value at (de)serialization.");
+		}
+	);
 };
 
 #define CON_LEN_shapesT 2*(PAR_LEN_shapeT) // currently unused in the actual code

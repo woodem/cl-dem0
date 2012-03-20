@@ -41,9 +41,9 @@ namespace clDem{
 		// make sure arrays are not empty
 		bboxes.resize(par.size()*6,NAN);
 		if(par.empty()) throw std::runtime_error("There must be some particles (now "+lexical_cast<string>(par.size())+").");
-		cl_long2 no2={-1,-1};
 		ensureArrayNonempty(con,ARR_CON,this,Contact());
 		ensureArrayNonempty(conFree,ARR_CONFREE,this,-1);
+		par_id2_t no2={-1,-1};
 		ensureArrayNonempty(pot,ARR_POT,this,no2);
 		ensureArrayNonempty(potFree,ARR_POTFREE,this,-1);
 		ensureArrayNonempty(cJournal,ARR_CJOURNAL,this,CJournalItem());
@@ -225,7 +225,7 @@ namespace clDem{
 							conFree.resize(arrNewSize(SS,ARR_CONFREE),-1);
 						}
 						if(SS.arrAlloc[ARR_POT]<SS.arrSize[ARR_POT]){
-							cl_long2 no2={-1,-1};
+							par_id2_t no2={-1,-1};
 							pot.resize(arrNewSize(SS,ARR_POT),no2);
 						}
 						if(SS.arrAlloc[ARR_POTFREE]<SS.arrSize[ARR_POTFREE]){

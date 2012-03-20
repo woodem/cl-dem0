@@ -2,6 +2,7 @@
 #define _COLLIDER_CL_H_
 
 #include"common.cl.h"
+#include"serialization.cl.h"
 
 CLDEM_NAMESPACE_BEGIN()
 
@@ -30,6 +31,7 @@ struct CJournalItem {
 		}
 		CJournalItem(){ CJournalItem_init(this); }
 	#endif
+	CLDEM_SERIALIZE_ATTRS((what)(index)(ids),/**/);
 };
 
 inline void CJournalItem_init(global struct CJournalItem* i){
@@ -54,6 +56,7 @@ namespace clDem{
 			//ConLoc(const ConLoc& b){ *this=b; }
 			//void operator=(const ConLoc& b){ ix=b.ix; isReal=b.isReal; } 
 			long ix; bool isReal;
+			CLDEM_SERIALIZE_ATTRS((ix)(isReal),/**/);
 		};
 		typedef std::vector<std::map<par_id_t,ConLoc>> cMapT;
 		cMapT cMap;
@@ -63,11 +66,14 @@ namespace clDem{
 			bool operator<(const AxBound& b) const { return coord<b.coord; }
 			par_id_t id;
 			float coord;
-			bool isMin: 1;
-			bool isThin:1;
+			bool isMin;
+			bool isThin;
 			// AxBound(par_id_t _id, float _coord, bool _isMin, bool _isThin);
+			CLDEM_SERIALIZE_ATTRS((id)(coord)(isMin)(isThin),);
 		};
 		std::vector<AxBound> bounds[3];
+
+		CLDEM_SERIALIZE_ATTRS((cMap)(bounds),/**/);
 
 		void add(par_id_t id1, par_id_t id2, const ConLoc&);
 		void remove(par_id_t id1, par_id_t id2);
@@ -81,7 +87,7 @@ namespace clDem{
 		void compactFree();
 
 		std::string ids2str(par_id_t id1, par_id_t id2){ return "##"+lexical_cast<string>(id1)+"+"+lexical_cast<string>(id2); }
-		std::string ids2str(const cl_long2& ii){ return ids2str(ii.s0,ii.s1); }
+		std::string ids2str(const par_id2_t& ii){ return ids2str(ii.s0,ii.s1); }
 
 		void run(Simulation*);
 		Simulation* sim;

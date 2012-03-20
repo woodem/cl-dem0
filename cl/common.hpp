@@ -3,6 +3,8 @@
 #define __CL_ENABLE_EXCEPTIONS
 #include"cl.hpp"
 
+#include"serialization.cl.h"
+
 #include<boost/shared_ptr.hpp>
 #include<boost/make_shared.hpp>
 using boost::shared_ptr;
@@ -14,14 +16,14 @@ namespace py=boost::python;
 #define PY_RWV(clss,attr) add_property(BOOST_PP_STRINGIZE(attr),/*read access*/py::make_getter(&clss::attr,py::return_value_policy<py::return_by_value>()),/*write access*/make_setter(&clss::attr,py::return_value_policy<py::return_by_value>()))
 #define PY_RW(clss,attr) def_readwrite(BOOST_PP_STRINGIZE(attr),&clss::attr)
 
-#if BOOST_VERSION<=14900
+// when included from yade, this is already in the yade's header
+#if BOOST_VERSION<=104900 && !defined(YADE_CLDEM)
 	// workaround for Contact alignment issues http://thread.gmane.org/gmane.comp.python.c++/15639
 	// it was fixed in the SVN http://svn.boost.org/svn/boost/trunk/boost/type_traits/type_with_alignment.hpp
 	// before boost 1.50
 	namespace boost {
 		namespace align { struct __attribute__((__aligned__(128))) a128 {};}
 		template<> class type_with_alignment<128> { public: typedef align::a128 type; };
-		// namespace detail{ BOOST_TT_AUX_BOOL_TRAIT_IMPL_SPEC1(is_pod,::boost::align::a128,true) }
 	};
 #endif
 
@@ -75,3 +77,25 @@ using std::cerr;
 using std::endl;
 using std::max;
 using std::min;
+
+
+/* eigen stuff */
+#define EIGEN_DONT_ALIGN
+#include<Eigen/Core>
+#include<Eigen/Geometry>
+#include<Eigen/Eigenvalues>
+
+namespace clDem{
+	typedef Eigen::Matrix<int,2,1> Vector2i;
+	typedef Eigen::Matrix<Real,3,3> Matrix3r;
+	typedef Eigen::Matrix<Real,3,1> Vector3r;
+	typedef Eigen::Quaternion<Real> Quaternionr;
+
+	inline Vector3r toEigen(const Vec3& v){ return Vector3r(v[0],v[1],v[2]); }
+	inline Quaternionr toEigen(const Quat& q){ return Quaternionr(q[3],q[0],q[1],q[2]); }
+	inline Matrix3r toEigen(const Mat3& m){ Matrix3r ret; ret<<m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8]; return ret; }
+
+	inline Vec3 fromEigen(const Vector3r& v){ return Vec3_set(v.x(),v.y(),v.z()); }
+	inline Quat fromEigen(const Quaternionr& q){ return Quat_set_wxyz(q.w(),q.x(),q.y(),q.z()); }
+	inline Mat3 fromEigen(const Matrix3r& m){ return Mat3_set(m(0,0),m(0,1),m(0,2),m(1,0),m(1,1),m(1,2),m(2,0),m(2,1),m(2,2)); }
+};

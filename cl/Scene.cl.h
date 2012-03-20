@@ -2,18 +2,29 @@
 #define _SCENE_CL_H_
 
 #include"common.cl.h"
+#include"serialization.cl.h"
 #include"kernels.cl.h"
 
 CLDEM_NAMESPACE_BEGIN();
 
 /* possibly we won't need different materials in one single simulation; stay general for now */
-struct ElastMat{ Real density, young; };
+struct ElastMat{ Real density, young; CLDEM_SERIALIZE_ATTRS((density)(young),/*otherCode*/); };
 inline struct ElastMat ElastMat_new(){ struct ElastMat ret; ret.density=NAN; ret.young=NAN; return ret; }
 
 enum _mat_enum { Mat_None=0, Mat_ElastMat=1, };
 
+struct Material;
+int mat_matT_get(const struct Material*);
+
 struct Material{
 	int flags;
+	CLDEM_SERIALIZE_ATTRS((flags),/*otherCode*/
+		switch(mat_matT_get(this)){
+			case Mat_None: break;
+			case Mat_ElastMat: ar & boost::serialization::make_nvp("elast",mat.elast); break;
+			default: throw std::runtime_error("Invalid matT at (de)serialization.");
+		}	
+	);
 	union{
 		struct ElastMat elast;
 	}  AMD_UNION_ALIGN_BUG_WORKAROUND() mat;
@@ -84,6 +95,7 @@ struct Scene{
 		cl_int step; // when -1, no interrupt; // FIXME: should be long, but there are no atomics on longs!
 		cl_int substep;
 		cl_int flags;
+		CLDEM_SERIALIZE_ATTRS((step)(substep)(flags),/*otherCode*/);
 	} interrupt;
 	Vec3 gravity;
 	Real damping;
@@ -102,6 +114,7 @@ struct Scene{
 	#ifdef __cplusplus
 		Scene();
 	#endif
+	CLDEM_SERIALIZE_ATTRS((t)(dt)(step)(rollback)(interrupt)(gravity)(damping)(verletDist)(loneGroups)(updateBboxes)(materials)(energy)(arrSize)(arrAlloc),/*otherCode*/);
 };
 
 
