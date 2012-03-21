@@ -11,7 +11,7 @@ struct Sphere{
 	#ifdef __cplusplus
 		Sphere(): radius(NAN) {}
 	#endif
-	CLDEM_SERIALIZE_ATTRS((radius),/* */);
+	CLDEM_SERIALIZE_ATTRS((radius),/* */)
 };
 
 struct Wall{
@@ -20,7 +20,7 @@ struct Wall{
 	#ifdef __cplusplus
 		Wall(): axis(-1), sense(0){}
 	#endif
-	CLDEM_SERIALIZE_ATTRS((axis)(sense),/* */);
+	CLDEM_SERIALIZE_ATTRS((axis)(sense),/* */)
 };
 
 struct Clump{
@@ -28,7 +28,7 @@ struct Clump{
 	#ifdef __cplusplus
 		Clump(): ix(-1){};
 	#endif
-	CLDEM_SERIALIZE_ATTRS((ix),/* */);
+	CLDEM_SERIALIZE_ATTRS((ix),/* */)
 };
 
 // stored in the clumps array
@@ -39,7 +39,7 @@ struct ClumpMember{
 	#ifdef __cplusplus
 		ClumpMember(): id(-1){}
 	#endif
-	CLDEM_SERIALIZE_ATTRS((id)(relPos)(relOri),/* */);
+	CLDEM_SERIALIZE_ATTRS((id)(relPos)(relOri),/* */)
 };
 
 // Sphere should come at the end
@@ -54,7 +54,7 @@ struct Particle{
 	int flags;
 	Vec3 pos, vel, angVel, bboxPos;
 	Quat ori;
-	Vec3 inertia;
+	Vec3 inertia, angMom; // angular momentum for aspherical particles
 	Real mass;
 	Vec3 force, torque;
 	union _shape {
@@ -72,7 +72,7 @@ struct Particle{
 			case Shape_Clump: ar & boost::serialization::make_nvp("clump",shape.clump); break;
 			default: throw std::runtime_error("Invalid shapeT value at (de)serialization.");
 		};
-	);
+	)
 	// needed for boost::python
 	#ifdef __cplusplus
 		Particle(){ Particle_init(this); }
@@ -131,6 +131,7 @@ static void Particle_init(struct Particle* p){
 	p->bboxPos=Vec3_set(NAN,NAN,NAN);
 	p->ori=Quat_identity();
 	p->inertia=Vec3_set(1,1,1);
+	p->angMom=Vec3_set(0,0,0);
 	p->mass=1.;
 	p->vel=p->angVel=Vec3_set(0,0,0);
 	p->mutex=0;
@@ -215,7 +216,7 @@ namespace clDem{
 			VECTOR_SEQ_CONV(ClumpMember);
 
 			py::class_<Particle>("Particle")//.def("__init__",py::make_constructor(Particle_new))
-				.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,force).PY_RWV(Particle,torque).PY_RWV(Particle,bboxPos)
+				.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RWV(Particle,angMom).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,force).PY_RWV(Particle,torque).PY_RWV(Particle,bboxPos)
 				.add_property("shape",Particle_shape_get,Particle_shape_set)
 				// flags
 				.def_readonly("flags",&Particle::flags)

@@ -31,7 +31,7 @@
 		template<class ArchiveT> void serialize(ArchiveT & ar, unsigned int version){ \
 			BOOST_PP_SEQ_FOR_EACH(_CLDEM_SER_ATTR,~,attrs) \
 			otherCode \
-		;};
+		;}
 
 
 	#include<CL/cl.h>

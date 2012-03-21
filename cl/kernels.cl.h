@@ -141,8 +141,32 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 		}
 	}
 	if((dofs&par_dofs_rot)==par_dofs_rot){
-		angAccel+=pp.torque/pp.inertia.x;
+		// spherical particle
+		//#define NO_ASPHERICAL
+
+		#ifndef NO_ASPHERICAL
+			if(pp.inertia.x==pp.inertia.y && pp.inertia.y==pp.inertia.z){
+		#endif
+				angAccel+=pp.torque/pp.inertia.x;
+		#ifndef NO_ASPHERICAL
+			} else {
+				// aspherical particles
+				Mat3 A=Quat_toMat3(Quat_conjugate(pp.ori)); // rotation matrix from global to local r.f.
+				Vec3 l_n=pp.angMom+dt/2.*pp.torque; // global angular momentum at time n
+				Vec3 l_b_n=Mat3_multV(A,l_n); // local angular momentum at time n
+				Vec3 angVel_b_n=l_b_n/pp.inertia; // local angular velocity at time n
+				Quat dotQ_n=Quat_dDt(pp.ori,angVel_b_n); // dQ/dt at time n
+				Quat Q_half=pp.ori+dt/2*dotQ_n; // Q at time n+1/2
+				pp.angMom+=dt*pp.torque; // global angular momentum at time n+1/2
+				Vec3 l_b_half=Mat3_multV(A,pp.angMom); // local angular momentum at time n+1/2
+				Vec3 angVel_b_half=l_b_half/pp.inertia; // local angular velocity at time n+1/2
+				Quat dotQ_half=Quat_dDt(Q_half,angVel_b_half); // dQ/dt at time n+1/2
+				pp.ori=normalize(pp.ori+dt*dotQ_half); // Q at time n+1
+				pp.angVel=Quat_rotate(pp.ori,angVel_b_half); // global angular velocity at time n+1/2
+			}
+		#endif
 	} else {
+		// fallback to spherical integrator for selective DOFs
 		for(int ax=0; ax<3; ax++){
 			if(dofs & dof_axis(ax,true )) ((Real*)(&angAccel))[ax]+=((Real*)(&pp.torque))[ax]/pp.inertia.x;
 			else ((Real*)(&angAccel))[ax]=0.;
@@ -182,6 +206,7 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	p->ori=pp.ori;
 	p->vel=pp.vel;
 	p->angVel=pp.angVel;
+	p->angMom=pp.angMom;
 	// reset forces
 	p->force=(Vec3)0.;
 	p->torque=(Vec3)0.;
@@ -463,6 +488,15 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	if(contactBroken){
 		#ifdef CON_LOG
 			printf("Breaking ##%ld+%ld\n",c.ids.s0,c.ids.s1);
+		#endif
+		#ifdef TRACK_ENERGY
+			if(con_geomT_get(&c)==Geom_L6Geom){
+				// without slipping, compute the shear elastic potential which gets lost
+				double2 kt=c.phys.normPhys.kN*SHEAR_KT_DIV_KN;
+				double kn=c.phys.normPhys.kN;
+				double fn=kn*c.geom.l6g.uN; double2 ft=c.force.yz+dt*kt*c.geom.l6g.vel.yz;
+				double E=.5*(fn*fn/kn+dot(ft,ft)/kt);
+				ADD_ENERGY(scene,broken,E);
 		#endif
 		// append contact to conFree (with possible allocation failure)
 		// if there is still bbox overlap, append to pot

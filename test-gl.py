@@ -61,4 +61,5 @@ else: # run via OpenCL only
 yade.gl.Gl1_CLDemField.bboxes=False
 
 O.saveTmp()
-O.save('/tmp/a.xml')
+O.timingEnabled=True
+#O.save('/tmp/a.xml')

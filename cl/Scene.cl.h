@@ -24,7 +24,7 @@ struct Material{
 			case Mat_ElastMat: ar & boost::serialization::make_nvp("elast",mat.elast); break;
 			default: throw std::runtime_error("Invalid matT at (de)serialization.");
 		}	
-	);
+	)
 	union{
 		struct ElastMat elast;
 	}  AMD_UNION_ALIGN_BUG_WORKAROUND() mat;
@@ -43,18 +43,19 @@ MATERIAL_FLAG_GET_SET(matT);
 #define MATT2_COMBINE(m1,m2) ((m1) | (m2)<<(MAT_LEN_matT))
 
 
-enum _energy{ENERGY_Ekt=0,ENERGY_Ekr,ENERGY_grav,ENERGY_damp,ENERGY_elast,SCENE_ENERGY_NUM };
+enum _energy{ENERGY_Ekt=0,ENERGY_Ekr,ENERGY_grav,ENERGY_damp,ENERGY_elast,ENERGY_broken,SCENE_ENERGY_NUM };
 struct  EnergyProperties {
 	const char name[16];
 	long int index; /* ! must be long, AMD otherwise reads garbage for incremental?! !! */ 
 	cl_bool incremental;
 };
 static constant struct EnergyProperties energyDefinitions[]={
-	{"Ekt",  ENERGY_Ekt,  false},
-	{"Ekr",  ENERGY_Ekt,  false},
-	{"grav", ENERGY_grav, true }, 
-	{"damp", ENERGY_damp, true },
-	{"elast",ENERGY_elast,false},
+	{"Ekt",   ENERGY_Ekt,   false},
+	{"Ekr",   ENERGY_Ekt,   false},
+	{"grav",  ENERGY_grav,  true }, 
+	{"damp",  ENERGY_damp,  true },
+	{"elast", ENERGY_elast, false},
+	{"broken",ENERGY_broken,true },
 };
 
 // interrupt flags
@@ -95,7 +96,7 @@ struct Scene{
 		cl_int step; // when -1, no interrupt; // FIXME: should be long, but there are no atomics on longs!
 		cl_int substep;
 		cl_int flags;
-		CLDEM_SERIALIZE_ATTRS((step)(substep)(flags),/*otherCode*/);
+		CLDEM_SERIALIZE_ATTRS((step)(substep)(flags),/*otherCode*/)
 	} interrupt;
 	Vec3 gravity;
 	Real damping;
@@ -114,7 +115,7 @@ struct Scene{
 	#ifdef __cplusplus
 		Scene();
 	#endif
-	CLDEM_SERIALIZE_ATTRS((t)(dt)(step)(rollback)(interrupt)(gravity)(damping)(verletDist)(loneGroups)(updateBboxes)(materials)(energy)(arrSize)(arrAlloc),/*otherCode*/);
+	CLDEM_SERIALIZE_ATTRS((t)(dt)(step)(rollback)(interrupt)(gravity)(damping)(verletDist)(loneGroups)(updateBboxes)(materials)(energy)(arrSize)(arrAlloc),/*otherCode*/)
 };
 
 

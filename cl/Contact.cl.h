@@ -13,7 +13,7 @@ struct L1Geom{
 #ifdef __cplusplus
 	L1Geom(){ L1Geom_init(this); }
 #endif
-	CLDEM_SERIALIZE_ATTRS((uN),/**/);
+	CLDEM_SERIALIZE_ATTRS((uN),/**/)
 };
 inline void L1Geom_init(struct L1Geom* obj){
 	obj->uN=NAN;
@@ -27,7 +27,7 @@ struct L6Geom{
 #ifdef __cplusplus
 	L6Geom(){ L6Geom_init(this); }
 #endif
-	CLDEM_SERIALIZE_ATTRS((uN)(vel)(angVel),/**/);
+	CLDEM_SERIALIZE_ATTRS((uN)(vel)(angVel),/**/)
 };
 inline void L6Geom_init(struct L6Geom* obj){
 	obj->uN=NAN;
@@ -43,7 +43,7 @@ struct NormPhys{
 	#ifdef __cplusplus
 		NormPhys(){ NormPhys_init(this); }
 	#endif
-	CLDEM_SERIALIZE_ATTRS((kN),/**/);
+	CLDEM_SERIALIZE_ATTRS((kN),/**/)
 };
 inline void NormPhys_init(struct NormPhys* obj){
 	obj->kN=NAN;
@@ -86,7 +86,7 @@ struct Contact{
 			case Phys_NormPhys: ar&boost::serialization::make_nvp("normPhys",phys.normPhys); break;
 			default: throw std::runtime_error("Invalid physT value at (de)serialization.");
 		}
-	);
+	)
 };
 
 #define CON_LEN_shapesT 2*(PAR_LEN_shapeT) // currently unused in the actual code
