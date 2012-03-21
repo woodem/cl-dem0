@@ -128,7 +128,9 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	// use vector ops for particles free in all 3 dofs, and on-eby-one only for those which are partially fixed
 	pp.force+=gravity*pp.mass; // put this up here so that grav appears in the force term
 	// some translations are allowed, compute gravity contribution
-	if((dofs & par_dofs_trans)!=0) ADD_ENERGY(scene,grav,-dot(gravity,pp.vel)*pp.mass*dt);
+	#if TRACK_ENERGY
+		if((dofs & par_dofs_trans)!=0) ADD_ENERGY(scene,grav,-dot(gravity,pp.vel)*pp.mass*dt);
+	#endif
 
 	if(isClump){ Clump_collectFromMembers(&pp,clumps,par); }
 
@@ -408,7 +410,7 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 			// coordinates along wall normal axis
 			Real cS=((Real*)&p2.pos)[axis], cW=((Real*)&p1.pos)[axis]; 
 			Real signedDist=cS-cW;
-			Vec3 normal=(Vec3)0.;
+					Vec3 normal=(Vec3)0.;
 			// if sense==0, the normal is oriented from the wall towards the sphere's center
 			if(sense==0) ((Real*)&normal)[axis]=signedDist>0?1.:-1.;
 			// else it is always oriented either along +axis or -axis
@@ -435,39 +437,48 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 		int matT1=mat_matT_get(&m1), matT2=mat_matT_get(&m2);
 		switch(MATT2_COMBINE(matT1,matT2)){
 			case MATT2_COMBINE(Mat_ElastMat,Mat_ElastMat):{
-				NormPhys_init(&c.phys.normPhys);
+				NormPhys_init(&c.phys.norm);
 				con_physT_set(&c,Phys_NormPhys);
-				c.phys.normPhys.kN=1./(physLengths.s0/(physArea*m1.mat.elast.young)+physLengths.s1/(physArea*m2.mat.elast.young));
-				// printf("d1=%f, d2=%f, A=%f, E1=%f, E2=%f, kN=%f\n",d1,d2,A,m1->mat.elast.young,m2->mat.elast.young,c->phys.normPhys.kN);
+				c.phys.norm.kN=1./(physLengths.s0/(physArea*m1.mat.elast.young)+physLengths.s1/(physArea*m2.mat.elast.young));
+				// printf("d1=%f, d2=%f, A=%f, E1=%f, E2=%f, kN=%f\n",d1,d2,A,m1->mat.elast.young,m2->mat.elast.young,c->phys.norm.kN);
+				break;
+			}
+			case MATT2_COMBINE(Mat_FrictMat,Mat_FrictMat):{
+				FrictPhys_init(&c.phys.frict);
+				con_physT_set(&c,Phys_FrictPhys);
+				c.phys.frict.kN=1./(physLengths.s0/(physArea*m1.mat.frict.young)+physLengths.s1/(physArea*m2.mat.frict.young));
+				c.phys.frict.kT=.5*(m1.mat.frict.ktDivKn+m2.mat.frict.ktDivKn)*c.phys.frict.kN;
+				// minimum friction angle for now
+				c.phys.frict.tanPhi=min(m1.mat.frict.tanPhi,m2.mat.frict.tanPhi);
 				break;
 			}
 			default: printf("ERROR: ##%ld+%ld has unknown material index combination %d+%d",c.ids.s0,c.ids.s1,matT1,matT2);
 		}
 	}
+	#ifndef BEND_CHARLEN
+		#define BEND_CHARLEN INFINITY
+	#endif
+	#ifndef SHEAR_KT_DIV_KN
+		#define SHEAR_KT_DIV_KN 0.
+	#endif
 	/* contact law */
 	if(!contactBroken){
 		int geomT=con_geomT_get(&c), physT=con_physT_get(&c);
 		switch(GEOMT_PHYST_COMBINE(geomT,physT)){
 			case GEOMT_PHYST_COMBINE(Geom_L1Geom,Phys_NormPhys):
-				c.force=(Vec3)(c.geom.l1g.uN*c.phys.normPhys.kN,0,0);
+				c.force=(Vec3)(c.geom.l1g.uN*c.phys.norm.kN,0,0);
 				c.torque=(Vec3)0.;
 				break;
 			case GEOMT_PHYST_COMBINE(Geom_L6Geom,Phys_NormPhys):{
-				#ifndef BEND_CHARLEN
-					#define BEND_CHARLEN INFINITY
-				#endif
-				#ifndef SHEAR_KT_DIV_KN
-					#define SHEAR_KT_DIV_KN 0.
-				#endif
 				// [ HACK: this will be removed once the params are in the material
 				Real charLen=BEND_CHARLEN;
 				const Real ktDivKn=SHEAR_KT_DIV_KN;
 				// ]
-				Vec3 kntt=(Vec3)(c.phys.normPhys.kN,c.phys.normPhys.kN*ktDivKn,c.phys.normPhys.kN*ktDivKn);
+				Vec3 kntt=(Vec3)(c.phys.norm.kN,c.phys.norm.kN*ktDivKn,c.phys.norm.kN*ktDivKn);
 				Vec3 ktbb=kntt/charLen;
 				c.force+=dt*c.geom.l6g.vel*kntt;
 				c.torque+=dt*c.geom.l6g.angVel*ktbb;
-				((Real*)&(c.force))[0]=c.phys.normPhys.kN*c.geom.l6g.uN; // set this one directly
+				c.force.x=c.phys.norm.kN*c.geom.l6g.uN; // set this one directly
 				#ifdef TRACK_ENERGY
 					Real E=.5*pown(c.force.s0,2)/kntt.s0;  // normal stiffness is always non-zero
 					if(kntt.s1!=0.) E+=.5*dot(c.force.s12,c.force.s12/kntt.s12);
@@ -477,6 +488,21 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 					// gives NaN when some stiffness is 0
 					// ADD_ENERGY(scene,elast,.5*dot(c.force,c.force/kntt)+.5*dot(c.torque,c.torque/ktbb));
 				#endif
+				break;
+			}
+			case GEOMT_PHYST_COMBINE(Geom_L6Geom,Phys_FrictPhys):{
+				Vec3 kntt=(Vec3)(c.phys.frict.kN,c.phys.frict.kT,c.phys.frict.kT);
+				c.force+=dt*c.geom.l6g.vel*kntt;
+				c.force.x=c.phys.frict.kN*c.geom.l6g.uN;
+				c.torque=(Vec3)0;
+				Real maxFt=fabs(c.force.x)*c.phys.frict.tanPhi;
+				if(dot(c.force.yz,c.force.yz)>maxFt*maxFt){
+					Real ftNorm=length(c.force.yz);
+					Real ratio=maxFt/ftNorm;
+					ADD_ENERGY(scene,frict,(.5*(ftNorm-maxFt)+maxFt)*(ftNorm-maxFt)/c.phys.frict.kT);
+					c.force.yz=ratio*c.force.yz;
+				}
+				ADD_ENERGY(scene,elast,.5*(pown(c.force.x,2)/c.phys.frict.kN+dot(c.force.yz,c.force.yz)/c.phys.frict.kT));
 				break;
 			}
 			default: printf("ERROR: ##%ld+%ld has unknown geomT+physT index combination %d+%d",c.ids.s0,c.ids.s1,geomT,physT);
@@ -490,10 +516,16 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 			printf("Breaking ##%ld+%ld\n",c.ids.s0,c.ids.s1);
 		#endif
 		#ifdef TRACK_ENERGY
-			if(con_geomT_get(&c)==Geom_L6Geom){
+			if(con_geomT_get(&c)==Geom_L6Geom && con_physT_get(&c)==Phys_NormPhys){
 				// without slipping, compute the shear elastic potential which gets lost
-				double2 kt=c.phys.normPhys.kN*SHEAR_KT_DIV_KN;
-				double kn=c.phys.normPhys.kN;
+				Real kt, kn;
+				if(con_physT_get(&c)==Phys_NormPhys){
+					kt=c.phys.norm.kN*SHEAR_KT_DIV_KN;
+					kn=c.phys.norm.kN;
+				} else if(con_physT_get(&c)==Phys_FrictPhys){
+					kt=c.phys.frict.kT;
+					kn=c.phys.frict.kN;
+				} else printf("ERROR: $$%ld+%ld: unhandled physT %d for broken energy tracking.",c.ids.s0,c.ids.s1,con_hysT_get(&c));
 				double fn=kn*c.geom.l6g.uN; double2 ft=c.force.yz+dt*kt*c.geom.l6g.vel.yz;
 				double E=.5*(fn*fn/kn+dot(ft,ft)/kt);
 				ADD_ENERGY(scene,broken,E);

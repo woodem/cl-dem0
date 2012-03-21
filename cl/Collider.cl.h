@@ -62,14 +62,18 @@ namespace clDem{
 		cMapT cMap;
 
 		struct AxBound{
-			// simply sort by coord; isThin takes care of mn==mx
-			bool operator<(const AxBound& b) const { return coord<b.coord; }
-			par_id_t id;
+			//data
 			float coord;
-			bool isMin;
-			bool isThin;
-			// AxBound(par_id_t _id, float _coord, bool _isMin, bool _isThin);
-			CLDEM_SERIALIZE_ATTRS((id)(coord)(isMin)(isThin),);
+			par_id_t idMinThin;
+			AxBound(){}
+			AxBound(par_id_t id, float _coord, bool _isMin, bool _isThin): idMinThin(id<<2 | (_isMin?1:0) | (_isThin?2:0)), coord(_coord) {}
+			//AxBound(const AxBound& b): coord(b.coord), idMinThin(b.idMinThin){}
+			//AxBound& operator=(const AxBound& b){ coord=b.coord; idMinThin=b.idMinThin; return *this; }
+			bool operator<(const AxBound& b) const { return coord<b.coord; } // simply sort by coord; isThin takes care of mn==mx
+			bool isMin() const { return idMinThin&1; }
+			bool isThin() const{ return idMinThin&2; }
+			par_id_t getId() const { return idMinThin>>2; }
+			CLDEM_SERIALIZE_ATTRS((idMinThin)(coord),);
 		};
 		std::vector<AxBound> bounds[3];
 

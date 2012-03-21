@@ -290,6 +290,7 @@ namespace clDem{
 			Real density, young;
 			switch(mat_matT_get(&m)){
 				case Mat_ElastMat: density=m.mat.elast.density; young=m.mat.elast.young; break;
+				case Mat_FrictMat: density=m.mat.frict.density; young=m.mat.frict.young; break;
 				default: throw std::runtime_error("Material "+lexical_cast<string>(matId)+" contains unhandled matT "+lexical_cast<string>(mat_matT_get(&m)));
 			}
 			ret=std::min(ret,p.shape.sphere.radius/sqrt(young/density));
@@ -378,7 +379,7 @@ namespace clDem{
 					else if(con_geomT_get(&c)==Geom_L6Geom){ uN->InsertNextValue(c.geom.l6g.uN); }
 					else throw std::runtime_error("Unknown geomT=="+lexical_cast<string>(con_geomT_get(&c)));
 					//
-					if(con_physT_get(&c)==Phys_NormPhys){ kN->InsertNextValue(c.phys.normPhys.kN); }
+					if(con_physT_get(&c)==Phys_NormPhys){ kN->InsertNextValue(c.phys.norm.kN); }
 					else throw std::runtime_error("Unknown physT=="+lexical_cast<string>(con_physT_get(&c)));
 				}
 				auto poly=vtkSmartPointer<vtkPolyData>::New();

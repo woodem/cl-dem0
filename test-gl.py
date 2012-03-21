@@ -12,15 +12,15 @@ dNum=int(sys.argv[2]) if len(sys.argv)>2 else -1
 
 dim=40,40,10
 margin=10
-r=.005
+r=.01
 ktDivKn=.2
 
 sim=clDem.Simulation(pNum,dNum,breakTension=True,ktDivKn=ktDivKn)
 
-sim.scene.materials=[clDem.ElastMat(young=1e6,density=1e3)]
+sim.scene.materials=[clDem.FrictMat(young=1e6,density=1e3,ktDivKn=.2,tanPhi=.5)]
 sim.scene.gravity=(-4,-5,-10)
 sim.scene.damping=.4
-sim.scene.verletDist=.3*r # collision detection in this case
+sim.scene.verletDist=.3*r
 sim.maxScheduledSteps=10
 
 sim.par.append(clDem.mkWall(pos=(0,0,2*r),axis=2,sim=sim,matId=0,groups=0b011))
@@ -49,7 +49,7 @@ import yade.log
 import yade.gl
 from yade import timing
 if 1: # run on both
-	O.scene=yade.cld.CLDemRun.clDemToYade(sim,stepPeriod=20,relTol=-1)
+	O.scene=yade.cld.CLDemRun.clDemToYade(sim,stepPeriod=20,relTol=1e-5)
 	#O.timingEnabled=True
 	# remove last engine and the clDem field
 	#O.scene.engines=O.scene.engines[0:-1]
@@ -61,5 +61,5 @@ else: # run via OpenCL only
 yade.gl.Gl1_CLDemField.bboxes=False
 
 O.saveTmp()
-O.timingEnabled=True
+#O.timingEnabled=True
 #O.save('/tmp/a.xml')

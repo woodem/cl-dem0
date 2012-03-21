@@ -155,7 +155,7 @@ void CpuCollider::initialStep(){
 			// add NaN as thin bbox 0--0
 			if(isnan(mn) || isnan(mx)) mn=mx=0;
 			if(!(mn<=mx)) throw std::runtime_error("#"+lexical_cast<string>(id)+", axis "+lexical_cast<string>(ax)+": min>max, "+lexical_cast<string>(mn)+">"+lexical_cast<string>(mx));
-			AxBound bMin={id,mn,true,mn==mx}, bMax={id,mx,false,mn==mx};
+			AxBound bMin(id,mn,true,mn==mx), bMax(id,mx,false,mn==mx);
 			bounds[ax][2*id]=bMin; bounds[ax][2*id+1]=bMax;
 		}
 	}
@@ -168,9 +168,9 @@ void CpuCollider::initialStep(){
 	const int ax0=0; // traverse along x, for example
 	for(size_t i=0; i<2*N; i++){
 		const AxBound& b0=bounds[ax0][i];
-		if(!b0.isMin || b0.isThin) continue;
-		for(size_t j=i+1; bounds[ax0][j].id!=b0.id; j++){
-			par_id_t id1=b0.id,id2=bounds[ax0][j].id;
+		if(!b0.isMin() || b0.isThin()) continue;
+		for(size_t j=i+1; bounds[ax0][j].getId()!=b0.getId(); j++){
+			par_id_t id1=b0.getId(),id2=bounds[ax0][j].getId();
 			// cerr<<"##"<<id1<<"+"<<id2<<endl;
 			if(!bboxOverlap(id1,id2)) continue;
 			if(!Scene_particles_may_collide(scene,&(sim->par[id1]),&(sim->par[id2]))) continue;
@@ -315,8 +315,8 @@ void CpuCollider::checkConsistency(){
 void CpuCollider::updateBounds(){
 	for(int ax:{0,1,2}){
 		for(AxBound& ab: bounds[ax]){
-			ab.coord=sim->bboxes[6*ab.id+ax+(ab.isMin?0:3)];
-			ab.isThin=(sim->bboxes[6*ab.id+ax]==sim->bboxes[6*ab.id+ax+3]); // this is perhaps not needed anymore
+			ab.coord=sim->bboxes[6*ab.getId()+ax+(ab.isMin()?0:3)];
+			//ab.isThin=(sim->bboxes[6*ab.id+ax]==sim->bboxes[6*ab.id+ax+3]); // this is perhaps not needed anymore
 		}
 	}
 }
@@ -332,8 +332,8 @@ void CpuCollider::insertionSort(){
 			while(j>=0 && (bb[j].coord>bbInit.coord || isnan(bb[j].coord))){
 				// bbInit is bb[j+1] which is travelling downwards and swaps with b[j]
 				// do not store min-min, max-max, nan inversions
-				if(bbInit.isMin!=bb[j].isMin && !isnan(bb[j].coord)){
-					int minId=min(bbInit.id,bb[j].id), maxId=max(bbInit.id,bb[j].id);
+				if(bbInit.isMin()!=bb[j].isMin() && !isnan(bb[j].coord)){
+					int minId=min(bbInit.getId(),bb[j].getId()), maxId=max(bbInit.getId(),bb[j].getId());
 					#if 0
 						// min going below max
 						if(bbInit.isMin) inv.push_back(Vector2i(minId,maxId));
@@ -345,12 +345,12 @@ void CpuCollider::insertionSort(){
 
 						// min going below max; if the contact is potential, delete it
 						// (no need to check bboxes, they cannot possibly overlap anymore)
-						if(!bbInit.isMin && cl && !cl->isReal){
+						if(!bbInit.isMin() && cl && !cl->isReal){
 							assert(!bboxOverlap(minId,maxId));
 							delPot(minId,maxId,cl);
 						}
 						// min going below max: the contact might be created, if there is overlap
-						if(bbInit.isMin && !cl && bboxOverlap(minId,maxId)){
+						if(bbInit.isMin() && !cl && bboxOverlap(minId,maxId)){
 							if(Scene_particles_may_collide(scene,&(sim->par[minId]),&(sim->par[maxId]))) addPot(minId,maxId,/*useFree*/true);
 						}
 						// otherwise, the contact is real or non-existent, do nothing

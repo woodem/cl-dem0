@@ -49,7 +49,22 @@ inline void NormPhys_init(struct NormPhys* obj){
 	obj->kN=NAN;
 }
 
-enum _phys_enum { Phys_None=0, Phys_NormPhys=1, };
+struct FrictPhys;
+void FrictPhys_init(struct FrictPhys*);
+struct FrictPhys{
+	Real kN, kT, tanPhi;
+	#ifdef __cplusplus
+		FrictPhys(){ FrictPhys_init(this); }
+	#endif
+	CLDEM_SERIALIZE_ATTRS((kN)(kT)(tanPhi),/**/)
+};
+inline void FrictPhys_init(struct FrictPhys* fp){
+	fp->kN=fp->kT=fp->tanPhi=NAN;
+}
+
+
+
+enum _phys_enum { Phys_None=0, Phys_NormPhys=1, Phys_FrictPhys };
 
 struct Contact;
 static void Contact_init(struct Contact *c);
@@ -72,18 +87,20 @@ struct Contact{
 	}  AMD_UNION_ALIGN_BUG_WORKAROUND() geom;
 	union _phys {
 		UNION_BITWISE_CTORS(_phys)
-		struct NormPhys normPhys;
+		struct NormPhys norm;
+		struct FrictPhys frict;
 	}  AMD_UNION_ALIGN_BUG_WORKAROUND() phys;
 	CLDEM_SERIALIZE_ATTRS((flags)(ids)(pos)(ori)(force)(torque),
 		switch(con_geomT_get(this)){
 			case Geom_None: break;
-			case Geom_L1Geom: ar&boost::serialization::make_nvp("l1g",geom.l1g); break;
-			case Geom_L6Geom: ar&boost::serialization::make_nvp("l6g",geom.l6g); break;
+			case Geom_L1Geom: ar&boost::serialization::make_nvp("geom.l1g",geom.l1g); break;
+			case Geom_L6Geom: ar&boost::serialization::make_nvp("geom.l6g",geom.l6g); break;
 			default: throw std::runtime_error("Invalid geomT value at (de)serialization.");
 		}
 		switch(con_physT_get(this)){
 			case Phys_None: break;
-			case Phys_NormPhys: ar&boost::serialization::make_nvp("normPhys",phys.normPhys); break;
+			case Phys_NormPhys: ar&boost::serialization::make_nvp("phys.norm",phys.norm); break;
+			case Phys_FrictPhys: ar&boost::serialization::make_nvp("phys.frict",phys.frict); break;
 			default: throw std::runtime_error("Invalid physT value at (de)serialization.");
 		}
 	)
@@ -146,7 +163,9 @@ namespace clDem{
 	void Contact_geom_set(Contact *c,py::object g){
 		if(g==py::object()){ con_geomT_set(c,0); return; }
 		py::extract<L1Geom> l1g(g);
+		py::extract<L6Geom> l6g(g);
 		if(l1g.check()){ c->geom.l1g=l1g(); con_geomT_set(c,Geom_L1Geom); }
+		if(l6g.check()){ c->geom.l6g=l6g(); con_geomT_set(c,Geom_L6Geom); }
 		else throw std::runtime_error("Unknown geom object.");
 	}
 
@@ -155,7 +174,8 @@ namespace clDem{
 		int physT=con_physT_get(c);
 		switch(physT){
 			case 0: return py::object();
-			case Phys_NormPhys: return py::object(c->phys.normPhys);
+			case Phys_NormPhys: return py::object(c->phys.norm);
+			case Phys_FrictPhys: return py::object(c->phys.frict);
 			default: throw std::runtime_error("Contact has phys with unknown index "+lexical_cast<string>(physT));
 		}
 	}
@@ -164,8 +184,10 @@ namespace clDem{
 	void Contact_phys_set(Contact *c,py::object p){
 		if(p==py::object()){ con_physT_set(c,0); return; }
 		py::extract<NormPhys> np(p);
-		if(np.check()){ c->phys.normPhys=np(); con_geomT_set(c,Phys_NormPhys); }
-		else throw std::runtime_error("Unknown geom object.");
+		py::extract<NormPhys> fp(p);
+		if(np.check()){ c->phys.norm=np(); con_physT_set(c,Phys_NormPhys); }
+		if(fp.check()){ c->phys.norm=fp(); con_physT_set(c,Phys_FrictPhys); }
+		else throw std::runtime_error("Unknown phys object.");
 	}
 	template<int N>
 	par_id_t Contact_id_get(Contact *c){ return (N==0?c->ids.s0:c->ids.s1); }
@@ -176,6 +198,7 @@ namespace clDem{
 			py::class_<L1Geom>("L1Geom").PY_RW(L1Geom,uN);
 			py::class_<L6Geom>("L6Geom").PY_RWV(L6Geom,uN).PY_RWV(L6Geom,vel).PY_RWV(L6Geom,angVel);
 			py::class_<NormPhys>("NormPhys").PY_RW(NormPhys,kN);
+			py::class_<FrictPhys>("FrictPhys").PY_RW(FrictPhys,kN).PY_RW(FrictPhys,kT).PY_RW(FrictPhys,tanPhi);
 
 			py::class_<Contact>("Contact")
 				.PY_RWV(Contact,ids).PY_RWV(Contact,pos).PY_RWV(Contact,ori).PY_RWV(Contact,force).PY_RWV(Contact,torque)

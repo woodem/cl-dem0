@@ -8,10 +8,21 @@
 CLDEM_NAMESPACE_BEGIN();
 
 /* possibly we won't need different materials in one single simulation; stay general for now */
-struct ElastMat{ Real density, young; CLDEM_SERIALIZE_ATTRS((density)(young),/*otherCode*/); };
-inline struct ElastMat ElastMat_new(){ struct ElastMat ret; ret.density=NAN; ret.young=NAN; return ret; }
+struct ElastMat{
+	Real density, young; CLDEM_SERIALIZE_ATTRS((density)(young),/*otherCode*/);
+	#if __cplusplus
+		ElastMat(): density(NAN), young(NAN){}
+	#endif
+};
+struct FrictMat{
+	Real density, young, ktDivKn, tanPhi;
+	; CLDEM_SERIALIZE_ATTRS((density)(young)(ktDivKn)(tanPhi),/*otherCode*/);
+	#if __cplusplus
+		FrictMat(): density(NAN), young(NAN), ktDivKn(NAN), tanPhi(NAN) {}
+	#endif
+};
 
-enum _mat_enum { Mat_None=0, Mat_ElastMat=1, };
+enum _mat_enum { Mat_None=0, Mat_ElastMat=1, Mat_FrictMat };
 
 struct Material;
 int mat_matT_get(const struct Material*);
@@ -22,11 +33,14 @@ struct Material{
 		switch(mat_matT_get(this)){
 			case Mat_None: break;
 			case Mat_ElastMat: ar & boost::serialization::make_nvp("elast",mat.elast); break;
+			case Mat_FrictMat: ar & boost::serialization::make_nvp("frict",mat.frict); break;
 			default: throw std::runtime_error("Invalid matT at (de)serialization.");
 		}	
 	)
-	union{
+	union _mat{
+		UNION_BITWISE_CTORS(_mat)
 		struct ElastMat elast;
+		struct FrictMat frict;
 	}  AMD_UNION_ALIGN_BUG_WORKAROUND() mat;
 };
 
@@ -43,7 +57,7 @@ MATERIAL_FLAG_GET_SET(matT);
 #define MATT2_COMBINE(m1,m2) ((m1) | (m2)<<(MAT_LEN_matT))
 
 
-enum _energy{ENERGY_Ekt=0,ENERGY_Ekr,ENERGY_grav,ENERGY_damp,ENERGY_elast,ENERGY_broken,SCENE_ENERGY_NUM };
+enum _energy{ENERGY_Ekt=0,ENERGY_Ekr,ENERGY_grav,ENERGY_damp,ENERGY_elast,ENERGY_frict,ENERGY_broken,SCENE_ENERGY_NUM };
 struct  EnergyProperties {
 	const char name[16];
 	long int index; /* ! must be long, AMD otherwise reads garbage for incremental?! !! */ 
@@ -55,6 +69,7 @@ static constant struct EnergyProperties energyDefinitions[]={
 	{"grav",  ENERGY_grav,  true }, 
 	{"damp",  ENERGY_damp,  true },
 	{"elast", ENERGY_elast, false},
+	{"frict", ENERGY_frict, true },
 	{"broken",ENERGY_broken,true },
 };
 
@@ -312,6 +327,7 @@ namespace clDem{
 		switch(matT){
 			case 0: return py::object();
 			case Mat_ElastMat: return py::object(m->mat.elast);
+			case Mat_FrictMat: return py::object(m->mat.frict);
 			default: throw std::runtime_error("Material has mat with unknown index "+lexical_cast<string>(matT));
 		}
 	}
@@ -319,7 +335,9 @@ namespace clDem{
 	void Material_mat_set(Material *m, py::object mat){
 		if(mat==py::object()){ mat_matT_set(m,0); return; }
 		py::extract<ElastMat> elast(mat);
+		py::extract<FrictMat> frict(mat);
 		if(elast.check()){ m->mat.elast=elast(); mat_matT_set(m,Mat_ElastMat); }
+		else if(frict.check()){ m->mat.frict=frict(); mat_matT_set(m,Mat_FrictMat); }
 		else throw std::runtime_error("Unknown mat object.");
 	}
 	static
@@ -369,7 +387,8 @@ namespace clDem{
 		static
 		void Scene_cl_h_expose(){
 			VECTOR_SEQ_CONV(Material);
-			py::class_<ElastMat>("ElastMat").def("__init__",ElastMat_new).PY_RW(ElastMat,density).PY_RW(ElastMat,young);
+			py::class_<ElastMat>("ElastMat").PY_RW(ElastMat,density).PY_RW(ElastMat,young);
+			py::class_<FrictMat>("FrictMat").PY_RW(FrictMat,density).PY_RW(FrictMat,young).PY_RW(FrictMat,ktDivKn).PY_RW(FrictMat,tanPhi);
 
 			py::class_<Scene>("Scene")
 				.PY_RW(Scene,t).PY_RW(Scene,dt).PY_RW(Scene,step).PY_RWV(Scene,gravity).PY_RW(Scene,damping).PY_RW(Scene,verletDist).PY_RW(Scene,loneGroups)

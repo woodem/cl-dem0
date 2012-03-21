@@ -17,7 +17,7 @@ def BaseClassSetter(baseClass,**kw):
 # functions which look like constructors, but set all attributes from keyword passed to them
 # the actual classes are in the _clDem module, which is not imported into the namespace
 # of this module directly
-for clss in ('Scene','ElastMat','Particle','Sphere','Wall','Contact','L1Geom','L6Geom','NormPhys'):
+for clss in ('Scene','ElastMat','FrictMat','Particle','Sphere','Wall','Contact','L1Geom','L6Geom','NormPhys','FrictPhys'):
 	# global() is reference to the global (module, in this case) dictionary
 	globals()[clss]=functools.partial(BaseClassSetter,getattr(_clDem,clss))
 Simulation=_clDem.Simulation
