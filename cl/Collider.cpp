@@ -157,19 +157,162 @@ void CpuCollider::initialStep(){
 			if(!(mn<=mx)) throw std::runtime_error("#"+lexical_cast<string>(id)+", axis "+lexical_cast<string>(ax)+": min>max, "+lexical_cast<string>(mn)+">"+lexical_cast<string>(mx));
 			AxBound bMin(id,mn,true,mn==mx), bMax(id,mx,false,mn==mx);
 			bounds[ax][2*id]=bMin; bounds[ax][2*id+1]=bMax;
+	if(2*id+1 == 1 || 2*id+1 ==5){
+			std::cout << "L/R : " << 2*id << " / " << 2*id+1 << std::endl;
+			std::cout << "bmax: " << bMax.coord << std::endl;
+			std::cout << "mx: " << mx << std::endl;
+	}
 		}
 	}
+
+
+for (int i = 0; i < 2*N; i++){
+	if(bounds[0][i].coord < 0.6){
+
+	} else {
+		std::cout << "tu: " << i << " coord: " << bounds[0][i].coord << std::endl;
+	}
+}
+
+#if 1
+	std::cout << "GPU" << std::endl;
+	cl::Buffer boundBufs[3];
+
+	int powerOfTwo = (pow(2, trunc(log2(2*N))) == 2*N) ?
+		pow(2, trunc(log2(2*N))) : pow(2, trunc(log2(2*N)) + 1);
+
+	cl_uint bits = 0;
+	for (int temp = powerOfTwo; temp > 1; temp >>= 1) {
+		++bits;
+	}
+
+	int less = powerOfTwo - 2*N;
+	cerr << "=======================" << endl;
+	cerr << "powerOfTwo : " << powerOfTwo << endl;
+	cerr << "less : " << less << endl;
+	cerr << "=======================" << endl;
+
+	int local_size = 16;
+	int global_size = (trunc(trunc(sqrt(powerOfTwo / 2)) / local_size) +  1) * local_size;
+	//prepare size of bounds for bittonic-sort
+	std::cout << "priprava bufferu" << std::endl;
+	for (int ax:{0, 1, 2}){
+		std::cout << "1 ax: " << ax << std::endl;
+		boundBufs[ax] = cl::Buffer(sim->context, CL_MEM_READ_WRITE,	powerOfTwo * sizeof (AxBound), NULL);
+			std::cout << "2" << std::endl;
+		bounds[ax].resize(powerOfTwo);
+			std::cout << "3" << std::endl;	
+		sim->queue.enqueueWriteBuffer(boundBufs[ax], CL_TRUE, 0, powerOfTwo * sizeof (AxBound), bounds[ax].data());
+			std::cout << "4" << std::endl;
+	}
+
+
+	std::cout << "create kernel" << std::endl;
+	try {
+		cl::Kernel sortKernel(sim->program, "sortBitonic");
+		cl::Event eve;
+		sortKernel.setArg(3, powerOfTwo);
+		sortKernel.setArg(4, 1);
+		
+		for (int ax:{0, 1, 2}){
+			sortKernel.setArg(0, boundBufs[ax]);
+			for (cl_uint stage = 0; stage < bits; stage++) {
+				sortKernel.setArg(1, stage);
+				for (cl_uint passOfStage = 0; passOfStage < stage + 1; passOfStage++) {
+					sortKernel.setArg(2, passOfStage);
+					sim->queue.enqueueNDRangeKernel(sortKernel, cl::NullRange,
+						cl::NDRange(global_size, global_size),
+						cl::NDRange(local_size, local_size), NULL, &eve);
+					eve.wait();
+				}
+			}
+		}
+
+	} catch (cl::Error& e){
+		std::cerr << e.what() << e.err() << std::endl;			
+		throw;
+	}
+	std::cout << "sort OK" << std::endl;
+
+	for (int ax:{0, 1, 2}){
+		bounds[ax].resize(2*N);
+		sim->queue.enqueueReadBuffer(boundBufs[ax], CL_TRUE, 0, 2*N*sizeof (AxBound), bounds[ax].data());
+		boundBufs[ax] = cl::Buffer(sim->context, CL_MEM_READ_WRITE, 2*N*sizeof (AxBound), NULL);
+		sim->queue.enqueueWriteBuffer(boundBufs[ax], CL_TRUE, 0, 2*N*sizeof (AxBound), bounds[ax].data());
+	}
+	std::cout << "shrink buffer OK" << std::endl;
+	
+	/*for (int i = 0; i < 2*N; i++){
+		if(bounds[0][i].coord > bounds[0][i+1].coord){
+			std::cout << bounds[0][i].coord << std::endl;
+		}
+	}*/
+
+	std::vector<AxBound> bounds1[3];
+	
+	bounds1[0] = bounds[0];
+	bounds1[1] = bounds[1];
+	bounds1[2] = bounds[2];
+
+
+//	for(int ax:{0,1,2}){
+//		std::sort(bounds[ax].begin(),bounds[ax].end());
+//	}
+
+	std::cout << "test sorted " << std::endl;
+
+
+	for(int ax:{0,1,2}){
+	for(int i = 0;  i < 2*N; i++) {
+	//std::cout << "id: " << i << " : " << bounds[0][i].coord << " x " <<bounds[1][i].coord << " x " << bounds[2][i].coord << std::endl;
+	/*if(bounds[ax][i].getId() != bounds1[ax][i].getId()){
+		std::cout << "error: " << ax << "coord cpu/gpu" << bounds[ax][i].coord << "/" 
+			<< bounds1[ax][i].coord << std::endl;
+	}*/
+	}
+	}
+	std::cout << "test sorted OK : " << N << std::endl;
+
+	const int ax0=0; // traverse along x, for example
+	for(size_t i=0; i<2*N; i++){
+		const AxBound& b0=bounds[ax0][i];
+	//std::cout << "A" << std::endl;
+		if(!b0.isMin() || b0.isThin()) continue;
+		for(size_t j=i+1; bounds[ax0][j].getId()!=b0.getId(); j++){
+	//std::cout << "B" << std::endl;
+	//std::cout << j << std::endl;
+			par_id_t id1=b0.getId(),id2=bounds[ax0][j].getId();
+			// cerr<<"##"<<id1<<"+"<<id2<<endl;
+			if(!bboxOverlap(id1,id2)) continue;
+	//std::cout << "C" << std::endl;
+			if(!Scene_particles_may_collide(scene,&(sim->par[id1]),&(sim->par[id2]))) continue;
+	//std::cout << "D" << std::endl;
+			if(find(id1,id2)) continue;
+	//std::cout << "E" << std::endl;
+			if(id1>id2) std::swap(id1,id2);
+	//std::cout << "F" << std::endl;
+			addPot(id1,id2, /* useFree */ false);
+
+		}
+	}
+
+#else
+
 	// sort initial bounds
 	for(int ax:{0,1,2}){
 		std::sort(bounds[ax].begin(),bounds[ax].end());
 		// for(const auto& b: bounds[ax]) cerr<<ax<<" "<<b.id<<" "<<(b.isMin?"<-":"->")<<" "<<b.coord<<" "<<(b.isThin?"THIN":"")<<endl;
 	}
+
+	std::cout << bounds[0][2*N-2].coord << "/" << bounds[0][2*N-1].coord << "/" << bounds[0][2*N].coord << std::endl;
+
 	// create potential contacts
 	const int ax0=0; // traverse along x, for example
 	for(size_t i=0; i<2*N; i++){
 		const AxBound& b0=bounds[ax0][i];
 		if(!b0.isMin() || b0.isThin()) continue;
 		for(size_t j=i+1; bounds[ax0][j].getId()!=b0.getId(); j++){
+			//std::cout << j << std::endl;
 			par_id_t id1=b0.getId(),id2=bounds[ax0][j].getId();
 			// cerr<<"##"<<id1<<"+"<<id2<<endl;
 			if(!bboxOverlap(id1,id2)) continue;
@@ -179,6 +322,10 @@ void CpuCollider::initialStep(){
 			addPot(id1,id2, /* useFree */ false);
 		}
 	}
+
+#endif
+
+	std::cout << "GPU code is OK" << std::endl;
 
 	if(sim->pot.empty()){
 		par_id2_t no2={-1,-1};

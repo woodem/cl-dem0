@@ -581,5 +581,80 @@ kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST){
 }
 
 
+struct AxBound {
+    float coord;
+    ulong id;
+    //1 bit -> isMin
+    //2 bit ->  isThin
+    //id >> 2 -> AxBound's id
+};
+
+/**
+* kernel for sort AxBound array
+* @param theArray - array of AxBound data
+* @param stage - main stage sorting
+* @param passOfStage - second stage of sorting
+* @param width - No. of Axbound for sorting
+* @param direction - type of sort style ASC or DESC
+*/
+kernel 
+void sortBitonic ( 
+    global struct AxBound * theArray,
+    const uint stage, 
+    const uint passOfStage,
+    const uint width,
+    const uint direction )
+{
+    uint sortIncreasing = direction;
+    uint size = get_global_size(1);
+    uint gid_x = get_global_id(0);
+    uint gid_y = get_global_id(1);
+    uint threadId = gid_x + gid_y * size;
+  
+    uint pairDistance = 1 << (stage - passOfStage);
+    uint blockWidth   = 2 * pairDistance;
+
+    uint leftId = (threadId % pairDistance) 
+                   + (threadId / pairDistance) * blockWidth;
+
+    uint rightId = leftId + pairDistance;
+
+    if((rightId >= width) || (leftId >= width)){
+        return;
+    }
+
+    struct AxBound leftElement = theArray[leftId];
+    struct AxBound rightElement = theArray[rightId];
+	struct AxBound tmp;
+    
+    uint sameDirectionBlockWidth = 1 << stage;
+    
+    sortIncreasing = ( threadId / sameDirectionBlockWidth ) % 2 == 1 ?
+        1 - sortIncreasing : sortIncreasing;
+
+    struct AxBound greater = (leftElement.coord > rightElement.coord)
+                                 ? leftElement : rightElement;
+    struct AxBound lesser = (leftElement.coord > rightElement.coord)
+                                 ? rightElement : leftElement;
+	if(lesser.coord == greater.coord){
+		if(lesser.id >> 2 > greater.id >>2){
+			tmp = lesser;
+			lesser = greater;
+			greater = tmp;
+		}
+	}
+
+	if(lesser.id >> -1 && greater.id != -1){
+			tmp = lesser;
+			lesser = greater;
+			greater = tmp;
+	}
+
+    theArray[leftId] = sortIncreasing ? lesser : greater;
+    
+    theArray[rightId] = sortIncreasing ? greater : lesser;
+}
+
+
 #endif
 #endif

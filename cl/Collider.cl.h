@@ -49,7 +49,7 @@ CLDEM_NAMESPACE_END()
 namespace clDem{
 	struct Simulation;
 	struct Scene;
-	struct CpuCollider{
+	struct CpuCollider{	
 		// index in either con (if isReal) or pot (if !isReal)
 		struct ConLoc{
 			ConLoc(size_t _ix=-1, bool _isReal=false): ix(_ix), isReal(_isReal) {};
@@ -63,9 +63,9 @@ namespace clDem{
 
 		struct AxBound{
 			//data
-			float coord;
+			cl_float coord;
 			par_id_t idMinThin;
-			AxBound(){}
+			AxBound(): coord(std::numeric_limits<cl_float>::infinity()), idMinThin(-1 << 2) {};
 			AxBound(par_id_t id, float _coord, bool _isMin, bool _isThin): idMinThin(id<<2 | (_isMin?1:0) | (_isThin?2:0)), coord(_coord) {}
 			//AxBound(const AxBound& b): coord(b.coord), idMinThin(b.idMinThin){}
 			//AxBound& operator=(const AxBound& b){ coord=b.coord; idMinThin=b.idMinThin; return *this; }
@@ -76,7 +76,7 @@ namespace clDem{
 			CLDEM_SERIALIZE_ATTRS((idMinThin)(coord),);
 		};
 		std::vector<AxBound> bounds[3];
-
+		
 		CLDEM_SERIALIZE_ATTRS((cMap)(bounds),/**/);
 
 		void add(par_id_t id1, par_id_t id2, const ConLoc&);
