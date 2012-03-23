@@ -49,7 +49,8 @@ CLDEM_NAMESPACE_END()
 namespace clDem{
 	struct Simulation;
 	struct Scene;
-	struct CpuCollider{	
+	struct CpuCollider{
+		CpuCollider(): useGpu(false){}
 		// index in either con (if isReal) or pot (if !isReal)
 		struct ConLoc{
 			ConLoc(size_t _ix=-1, bool _isReal=false): ix(_ix), isReal(_isReal) {};
@@ -66,7 +67,7 @@ namespace clDem{
 			cl_float coord;
 			par_id_t idMinThin;
 			AxBound(): coord(std::numeric_limits<cl_float>::infinity()), idMinThin(-1 << 2) {};
-			AxBound(par_id_t id, float _coord, bool _isMin, bool _isThin): idMinThin(id<<2 | (_isMin?1:0) | (_isThin?2:0)), coord(_coord) {}
+			AxBound(par_id_t id, float _coord, bool _isMin, bool _isThin): coord(_coord), idMinThin(id<<2 | (_isMin?1:0) | (_isThin?2:0)) {}
 			//AxBound(const AxBound& b): coord(b.coord), idMinThin(b.idMinThin){}
 			//AxBound& operator=(const AxBound& b){ coord=b.coord; idMinThin=b.idMinThin; return *this; }
 			bool operator<(const AxBound& b) const { return coord<b.coord; } // simply sort by coord; isThin takes care of mn==mx
@@ -76,8 +77,10 @@ namespace clDem{
 			CLDEM_SERIALIZE_ATTRS((idMinThin)(coord),);
 		};
 		std::vector<AxBound> bounds[3];
-		
-		CLDEM_SERIALIZE_ATTRS((cMap)(bounds),/**/);
+
+		bool useGpu;
+
+		CLDEM_SERIALIZE_ATTRS((cMap)(bounds)(useGpu),/**/);
 
 		void add(par_id_t id1, par_id_t id2, const ConLoc&);
 		void remove(par_id_t id1, par_id_t id2);
@@ -98,6 +101,7 @@ namespace clDem{
 		Scene* scene;
 
 		void initialStep();
+		void initialSortGpu();
 		void incrementalStep();
 
 		void replayJournal();

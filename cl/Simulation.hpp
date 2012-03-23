@@ -32,60 +32,55 @@ namespace clDem{
 		vector<ClumpMember> clumps;
 
 		vector<cl_float> bboxes;
+
+		// OopenCL device
+		int pNum, dNum;
 			
 		// numerical parameters
 		bool trackEnergy;
 		Real ktDivKn;
 		bool breakTension;
 		Real charLen;
+		bool collideGpu;
 
-		CLDEM_SERIALIZE_ATTRS(/*binary*/(scene)(trackEnergy)(ktDivKn)(breakTension)(charLen)/*other*/(par)(con)(conFree)(pot)(potFree)(cJournal)(clumps)(bboxes)(cpuCollider),/*otherCode*/);
+		string extraOpts;
+		int maxScheduledSteps;
 
+		CLDEM_SERIALIZE_ATTRS((pNum)(dNum)/*binary*/(scene)(trackEnergy)(ktDivKn)(breakTension)(charLen)(collideGpu)(extraOpts)(maxScheduledSteps)/*other*/(par)(con)(conFree)(pot)(potFree)(cJournal)(clumps)(bboxes)(cpuCollider),/*otherCode*/);
 
-
-		Simulation(int pNum=-1,int dNum=-1, bool _trackEnergy=false, Real _ktDivKn=NAN, bool _breakTension=false, Real _charLen=NAN, const string& _opts=""): trackEnergy(_trackEnergy), ktDivKn(_ktDivKn), breakTension(_breakTension), charLen(_charLen)	{
-			scene=Scene();
-			maxScheduledSteps=-1;
-			string opts(_opts);
-			if(trackEnergy) opts+=" -DTRACK_ENERGY";
-			if(!isnan(ktDivKn)) opts+=" -DSHEAR_KT_DIV_KN="+lexical_cast<string>(ktDivKn);
-			if(breakTension) opts+=" -DL6GEOM_BREAK_TENSION";
-			if(!isnan(charLen)) opts+=" -DBEND_CHARLEN="+lexical_cast<string>(charLen);
-			initCl(pNum,dNum,opts);
-			cpuCollider=make_shared<CpuCollider>();
-		}
+		Simulation(int pNum=-1,int dNum=-1, bool _trackEnergy=false, Real _ktDivKn=NAN, bool _breakTension=false, Real _charLen=NAN, bool _collideGpu=false, const string& _opts=""): trackEnergy(_trackEnergy), ktDivKn(_ktDivKn), breakTension(_breakTension), charLen(_charLen), collideGpu(_collideGpu), extraOpts(_opts), maxScheduledSteps(-1) {}
 
 		void save(const string& s){ ObjectIO::save(s,"cldem",*this); }
 		void load(const string& s){ ObjectIO::load(s,"cldem",*this); }
 
-		cl::Platform platform;
-		cl::Device device;
-		cl::Context context;
-		cl::CommandQueue queue;
-		cl::Program program;
+		shared_ptr<cl::Platform> platform;
+		shared_ptr<cl::Device> device;
+		shared_ptr<cl::Context> context;
+		shared_ptr<cl::CommandQueue> queue;
+		shared_ptr<cl::Program> program;
 
 		shared_ptr<CpuCollider> cpuCollider;
 
 		/* read and write fixed-size objects (all async, use queue.finish() to wait) */
 		template<typename T> cl::Buffer writeBuf(const T& obj,bool wait=false){
-			cl::Buffer buf(context,CL_MEM_READ_WRITE,sizeof(T),NULL);
-			queue.enqueueWriteBuffer(buf,wait?CL_TRUE:CL_FALSE,0,sizeof(T),&obj);
+			cl::Buffer buf(*context,CL_MEM_READ_WRITE,sizeof(T),NULL);
+			queue->enqueueWriteBuffer(buf,wait?CL_TRUE:CL_FALSE,0,sizeof(T),&obj);
 			return buf;
 		}
 		template<typename T> void readBuf(cl::Buffer& buf, T& obj,bool wait=false){
-			queue.enqueueReadBuffer(buf,wait?CL_TRUE:CL_FALSE,0,sizeof(T),&obj);
+			queue->enqueueReadBuffer(buf,wait?CL_TRUE:CL_FALSE,0,sizeof(T),&obj);
 		}
 		/* read and write std::vector containers (all async) */
 		template<typename T> void writeVecBuf(std::vector<T>& obj, BufSize& bs){
 			if(obj.empty()) throw std::runtime_error("Buffer created from std::vector<"+string(typeid(T).name())+"> may not be empty.");
-			bs.buf=cl::Buffer(context,CL_MEM_READ_WRITE,sizeof(T)*obj.size(),NULL);
-			queue.enqueueWriteBuffer(bs.buf,CL_FALSE,0,sizeof(T)*obj.size(),obj.data());
+			bs.buf=cl::Buffer(*context,CL_MEM_READ_WRITE,sizeof(T)*obj.size(),NULL);
+			queue->enqueueWriteBuffer(bs.buf,CL_FALSE,0,sizeof(T)*obj.size(),obj.data());
 			bs.size=obj.size();
 		}
 		template<typename T> void readVecBuf(std::vector<T>& obj, BufSize& bs){
 			//cerr<<typeid(T).name()<<"["<<bs.size;
 			obj.resize(bs.size); // in case size was changed meanwhile
-			queue.enqueueReadBuffer(bs.buf,CL_FALSE,0,sizeof(T)*obj.size(),obj.data());
+			queue->enqueueReadBuffer(bs.buf,CL_FALSE,0,sizeof(T)*obj.size(),obj.data());
 			//cerr<<"]";
 		}
 
@@ -97,10 +92,7 @@ namespace clDem{
 		void runKernels(int nSteps, int substepStart=0);
 		cl::Kernel makeKernel(const char* name);
 
-		int maxScheduledSteps;
-
-
-		void initCl(int pNum, int dNum, const string& opts);
+		void initCl();
 		void run(int nSteps);
 		Real pWaveDt();
 		py::tuple getBbox(par_id_t id);
@@ -121,7 +113,7 @@ namespace clDem{
 
 static
 void Simulation_hpp_expose(){
-	py::class_<clDem::Simulation,shared_ptr<clDem::Simulation>>("Simulation",py::init<int,int,bool,Real,bool,Real,string>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1,py::arg("trackEnergy")=false,py::arg("ktDivKn")=NAN,py::arg("breakTension")=false,py::arg("charLen")=NAN,py::arg("opts")="")))
+	py::class_<clDem::Simulation,shared_ptr<clDem::Simulation>>("Simulation",py::init<int,int,bool,Real,bool,Real,bool,string>((py::arg("platformNum")=-1,py::arg("deviceNum")=-1,py::arg("trackEnergy")=false,py::arg("ktDivKn")=NAN,py::arg("breakTension")=false,py::arg("charLen")=NAN,py::arg("collideGpu")=false,py::arg("opts")="")))
 		.PY_RW(Simulation,scene)
 		.PY_RW(Simulation,par)
 		.PY_RW(Simulation,con)
@@ -135,6 +127,7 @@ void Simulation_hpp_expose(){
 		.def_readonly("ktDivKn",&Simulation::ktDivKn)
 		.def_readonly("breakTension",&Simulation::breakTension)
 		.def_readonly("charLen",&Simulation::charLen)
+		.def_readwrite("collideGpu",&Simulation::collideGpu)
 		.def("run",&Simulation::run,(py::arg("nSteps"),py::arg("resetArrays")=true))
 		#ifdef CLDEM_VTK
 		.def("saveVtk",&Simulation::saveVtk,(py::arg("prefix"),py::arg("compress")=true,py::arg("ascii")=false))

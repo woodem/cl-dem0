@@ -81,7 +81,7 @@ namespace clDem{
 		// fixed-size arrays
 		writeVecBuf(clumps,bufSize[_clumps]);
 		writeVecBuf(bboxes,bufSize[_bboxes]);
-		if(wait) queue.finish();
+		if(wait) queue->finish();
 	}
 
 	void Simulation::readBufs(bool wait){
@@ -95,11 +95,11 @@ namespace clDem{
 		readVecBuf(cJournal,bufSize[_cJournal]);
 		//readVecBuf(clumps,bufSize[_clumps]); // not changed in the simulation, no need to read back
 		readVecBuf(bboxes,bufSize[_bboxes]);
-		if(wait) queue.finish();
+		if(wait) queue->finish();
 	};
 
 	cl::Kernel Simulation::makeKernel(const char* name){
-		cl::Kernel k(program,name);
+		cl::Kernel k(*program,name);
 		k.setArg(0,sceneBuf);
 		k.setArg(1,bufSize[_par].buf);
 		k.setArg(2,bufSize[_con].buf);
@@ -112,52 +112,74 @@ namespace clDem{
 		return k;
 	}
 
-	void Simulation::initCl(int pNum, int dNum, const string& opts){
-		std::vector<cl::Platform> platforms;
-		std::vector<cl::Device> devices;
-		cl::Platform::get(&platforms);
-		if(pNum<0){
-			std::cerr<<"==================================="<<std::endl;
-			for(int i=0; i<platforms.size(); i++){
-				std::cerr<<i<<". platform: "<<platforms[i].getInfo<CL_PLATFORM_NAME>()<<std::endl;
-				platforms[i].getDevices(CL_DEVICE_TYPE_ALL,&devices);
-				for(int j=0; j<devices.size(); j++){
-					std::cerr<<"\t"<<j<<". device: "<<devices[j].getInfo<CL_DEVICE_NAME>()<<std::endl;
+	void Simulation::initCl(){
+		cpuCollider=make_shared<CpuCollider>();
+
+		// if there is no queue, create it
+		// note that context can be set externally (from yade after loading, for instance)
+		if(!queue){
+			assert(!context);
+			std::vector<cl::Platform> platforms;
+			std::vector<cl::Device> devices;
+			cl::Platform::get(&platforms);
+			if(pNum<0){
+				std::cerr<<"==================================="<<std::endl;
+				for(int i=0; i<platforms.size(); i++){
+					std::cerr<<i<<". platform: "<<platforms[i].getInfo<CL_PLATFORM_NAME>()<<std::endl;
+					platforms[i].getDevices(CL_DEVICE_TYPE_ALL,&devices);
+					for(int j=0; j<devices.size(); j++){
+						std::cerr<<"\t"<<j<<". device: "<<devices[j].getInfo<CL_DEVICE_NAME>()<<std::endl;
+					}
 				}
+				std::cerr<<"==================================="<<std::endl;
 			}
-			std::cerr<<"==================================="<<std::endl;
+			cl::Platform::get(&platforms);
+			if(pNum>=(int)platforms.size()){ std::cerr<<"Only "<<platforms.size()<<" platforms available, taking 0th platform."<<std::endl; pNum=0; }
+			if(pNum<0) pNum=0;
+			platform=make_shared<cl::Platform>(platforms[pNum]);
+			platform->getDevices(CL_DEVICE_TYPE_ALL,&devices);
+			if(dNum>=(int)devices.size()){ std::cerr<<"Only "<<devices.size()<<" devices available, taking 0th device."<<std::endl; dNum=0; }
+			if(dNum<0) dNum=0;
+			device=make_shared<cl::Device>(devices[dNum]);
+			context=make_shared<cl::Context>(std::vector<cl::Device>({*device}));
+			queue=make_shared<cl::CommandQueue>(*context,*device);
+			std::cerr<<"** OpenCL ready: platform \""<<platform->getInfo<CL_PLATFORM_NAME>()<<"\", device \""<<device->getInfo<CL_DEVICE_NAME>()<<"\"."<<std::endl;
+			program.reset(); // force recompilation at context change
 		}
-		cl::Platform::get(&platforms);
-		if(pNum>=(int)platforms.size()){ std::cerr<<"Only "<<platforms.size()<<" platforms available, taking 0th platform."<<std::endl; pNum=0; }
-		if(pNum<0) pNum=0;
-		platform=platforms[pNum];
-		platforms[pNum].getDevices(CL_DEVICE_TYPE_ALL,&devices);
-		if(dNum>=(int)devices.size()){ std::cerr<<"Only "<<devices.size()<<" devices available, taking 0th device."<<std::endl; dNum=0; }
-		if(dNum<0) dNum=0;
-		context=cl::Context(devices);
-		device=devices[dNum];
-		std::cerr<<"** OpenCL ready: platform \""<<platform.getInfo<CL_PLATFORM_NAME>()<<"\", device \""<<device.getInfo<CL_DEVICE_NAME>()<<"\"."<<std::endl;
-		queue=cl::CommandQueue(context,device);
-		// compile source
-		const char* src="#include\"cl/kernels.cl.h\"\n\n\0";
-		cl::Program::Sources source(1,std::make_pair(src,std::string(src).size()));
-		program=cl::Program(context,source);
-		try{
-			string opts2(opts+" -I.");
-			std::cerr<<"** compile with otions: "<<opts2<<endl;
-			program.build(std::vector<cl::Device>({device}),opts2.c_str(),NULL,NULL);
-		}catch(cl::Error& e){
-			std::cerr<<"Error building source. Build log follows."<<std::endl;
-			std::cerr<<program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device)<<std::endl;
-			throw std::runtime_error("Error compiling OpenCL code.");
+		if(!program){
+			// compile source
+			string opts(extraOpts);
+			if(trackEnergy) opts+=" -DTRACK_ENERGY";
+			if(!isnan(ktDivKn)) opts+=" -DSHEAR_KT_DIV_KN="+lexical_cast<string>(ktDivKn);
+			if(breakTension) opts+=" -DL6GEOM_BREAK_TENSION";
+			if(!isnan(charLen)) opts+=" -DBEND_CHARLEN="+lexical_cast<string>(charLen);
+
+			const char* src="#include\"cl/kernels.cl.h\"\n\n\0";
+
+			cl::Program::Sources source(1,std::make_pair(src,std::string(src).size()));
+			program=make_shared<cl::Program>(*context,source);
+			try{
+				string opts2(opts+" -I.");
+				std::cerr<<"** compile with otions: "<<opts2<<endl;
+				program->build(std::vector<cl::Device>({*device}),opts2.c_str(),NULL,NULL);
+			}catch(cl::Error& e){
+				std::cerr<<"Error building source. Build log follows."<<std::endl;
+				std::cerr<<program->getBuildInfo<CL_PROGRAM_BUILD_LOG>(*device)<<std::endl;
+				throw std::runtime_error("Error compiling OpenCL code.");
+			}
+			//auto log=program->getBuildInfo<CL_PROGRAM_BUILD_LOG>(*device);
+			//if(!log.empty()) std::cerr<<log<<std::endl;
+			std::cerr<<"** Program compiled.\n";
 		}
-		//auto log=program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device);
-		//if(!log.empty()) std::cerr<<log<<std::endl;
-		std::cerr<<"** Program compiled.\n";
 	};
 	//#define LOOP_DBG(a) std::cerr<<a<<std::endl;
 	#define LOOP_DBG(a)
 	void Simulation::run(int _nSteps){
+		// OpenCL was not initialized yet, do it here
+		if(!program) initCl();
+		
+		cpuCollider->useGpu=collideGpu;
+
 		// create buffers, enqueue copies to the device
 		writeBufs(/*wait*/true);
 		long goalStep=scene.step+_nSteps;
@@ -268,10 +290,10 @@ namespace clDem{
 				substepLast=ki.substep;
 				cl::Kernel k=makeKernel(ki.name);
 				switch(ki.argsType){
-					case KARGS_SINGLE: queue.enqueueTask(k); break;
-					case KARGS_PAR: queue.enqueueNDRangeKernel(k,cl::NDRange(0),cl::NDRange(bufSize[_par].size),cl::NDRange(1)); break;
-					case KARGS_CON: queue.enqueueNDRangeKernel(k,cl::NDRange(0),cl::NDRange(bufSize[_con].size),cl::NDRange(1)); break;
-					case KARGS_POT: queue.enqueueNDRangeKernel(k,cl::NDRange(0),cl::NDRange(bufSize[_pot].size),cl::NDRange(1)); break;
+					case KARGS_SINGLE: queue->enqueueTask(k); break;
+					case KARGS_PAR: queue->enqueueNDRangeKernel(k,cl::NDRange(0),cl::NDRange(bufSize[_par].size),cl::NDRange(1)); break;
+					case KARGS_CON: queue->enqueueNDRangeKernel(k,cl::NDRange(0),cl::NDRange(bufSize[_con].size),cl::NDRange(1)); break;
+					case KARGS_POT: queue->enqueueNDRangeKernel(k,cl::NDRange(0),cl::NDRange(bufSize[_pot].size),cl::NDRange(1)); break;
 					default: throw std::runtime_error("Invalid KernelInfo.argsType value "+lexical_cast<string>(ki.argsType));
 				}
 				LOOP_DBG("{"<<ki.name<<"}");
