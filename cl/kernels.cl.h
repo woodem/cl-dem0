@@ -717,8 +717,8 @@ void createOverlay (
         if(isMinR == 1 && leftItem.coord != rightItem.coord && rightItem.coord != bboxes[idLeft * 6 + 3]){
 
 		//Y axis
-        min1y = bboxes[idRight];
-        max1y = bboxes[idRight];
+        min1y = bboxes[idRight * 6 + 1];
+        max1y = bboxes[idRight * 6 + 4];
       
         if ((maxAy > min1y) && (minAy < max1y)){
             min1z = bboxes[idRight * 6 + 2];
