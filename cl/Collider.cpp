@@ -33,6 +33,8 @@ void CpuCollider::remove(par_id_t id1, par_id_t id2){
 };
 
 bool CpuCollider::bboxOverlap(par_id_t id1, par_id_t id2) const {
+	assert(id1>=0 && (6*id1+5)<sim->bboxes.size());
+	assert(id2>=0 && (6*id2+5)<sim->bboxes.size());
 	return
 		sim->bboxes[6*id1+0]<=sim->bboxes[6*id2+3] && sim->bboxes[6*id2+0]<=sim->bboxes[6*id1+3] &&
 		sim->bboxes[6*id1+1]<=sim->bboxes[6*id2+4] && sim->bboxes[6*id2+1]<=sim->bboxes[6*id1+4] &&
@@ -181,23 +183,22 @@ void CpuCollider::initialStep(){
 			// for(const auto& b: bounds[ax]) cerr<<ax<<" "<<b.id<<" "<<(b.isMin?"<-":"->")<<" "<<b.coord<<" "<<(b.isThin?"THIN":"")<<endl;
 		}
 	
-
-	// create potential contacts
-	const int ax0=0; // traverse along x, for example
-	for(size_t i=0; i<2*N; i++){
-		const AxBound& b0=bounds[ax0][i];
-		if(!b0.isMin() || b0.isThin()) continue;
-		for(size_t j=i+1; bounds[ax0][j].getId()!=b0.getId(); j++){
-			//std::cout << j << std::endl;
-			par_id_t id1=b0.getId(),id2=bounds[ax0][j].getId();
-			// cerr<<"##"<<id1<<"+"<<id2<<endl;
-			if(!bboxOverlap(id1,id2)) continue;
-			if(!Scene_particles_may_collide(scene,&(sim->par[id1]),&(sim->par[id2]))) continue;
-			if(find(id1,id2)) continue;
-			if(id1>id2) std::swap(id1,id2);
-			addPot(id1,id2, /* useFree */ false);
+		// create potential contacts
+		const int ax0=0; // traverse along x, for example
+		for(size_t i=0; i<2*N; i++){
+			const AxBound& b0=bounds[ax0][i];
+			if(!b0.isMin() || b0.isThin()) continue;
+			for(size_t j=i+1; bounds[ax0][j].getId()!=b0.getId(); j++){
+				//std::cout << j << std::endl;
+				par_id_t id1=b0.getId(),id2=bounds[ax0][j].getId();
+				// cerr<<"##"<<id1<<"+"<<id2<<endl;
+				if(!bboxOverlap(id1,id2)) continue;
+				if(!Scene_particles_may_collide(scene,&(sim->par[id1]),&(sim->par[id2]))) continue;
+				if(find(id1,id2)) continue;
+				if(id1>id2) std::swap(id1,id2);
+				addPot(id1,id2, /* useFree */ false);
+			}
 		}
-	}
 	}
 
 	if(sim->pot.empty()){
@@ -353,6 +354,8 @@ void CpuCollider::initialSortGpu(){
 
 
 		for(int i = 0; i < counter; i++){
+			assert(tmp[i].lo>=0 && tmp[i].lo<sim->par.size());
+			assert(tmp[i].hi>=0 && tmp[i].hi<sim->par.size());
 			if(!Scene_particles_may_collide(scene,&(sim->par[tmp[i].lo]),&(sim->par[tmp[i].hi]))) continue;
 			if(find(tmp[i].lo,tmp[i].hi)) continue;
 			if(tmp[i].lo > tmp[i].hi) std::swap(tmp[i].lo, tmp[i].hi);
