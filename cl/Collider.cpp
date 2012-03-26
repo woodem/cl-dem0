@@ -171,14 +171,16 @@ void CpuCollider::initialStep(){
 		}
 	}
 
-	if(useGpu) initialSortGpu();
-	else {
+	if(useGpu) {
+		initialSortGpu();
+
+	} else {
 		// sort initial bounds
 		for(int ax:{0,1,2}){
 			std::sort(bounds[ax].begin(),bounds[ax].end());
 			// for(const auto& b: bounds[ax]) cerr<<ax<<" "<<b.id<<" "<<(b.isMin?"<-":"->")<<" "<<b.coord<<" "<<(b.isThin?"THIN":"")<<endl;
 		}
-	}
+	
 
 	// create potential contacts
 	const int ax0=0; // traverse along x, for example
@@ -196,6 +198,7 @@ void CpuCollider::initialStep(){
 			addPot(id1,id2, /* useFree */ false);
 		}
 	}
+	}
 
 	if(sim->pot.empty()){
 		par_id2_t no2={-1,-1};
@@ -210,7 +213,7 @@ void CpuCollider::initialStep(){
 
 
 void CpuCollider::initialSortGpu(){
-	size_t N=sim->par.size();
+	cl_uint N=sim->par.size();
 
 	std::cout << "GPU" << std::endl;
 	cl::Buffer boundBufs[3];
@@ -292,21 +295,28 @@ void CpuCollider::initialSortGpu(){
 		sim->queue->enqueueWriteBuffer(gBboxes, CL_TRUE, 0, 6 * N * sizeof (cl_float), sim->bboxes.data());
 		std::cout << "B" << endl;
 		cl::Kernel createOverlayKernel(*sim->program, "createOverlay");
+		std::cout << "B" << endl;
 		createOverlayKernel.setArg(0, boundBufs[0]);
-		createOverlayKernel.setArg(1, gOverlay);
-		createOverlayKernel.setArg(2, gCounter);
-		createOverlayKernel.setArg(3, 2*N);
-		createOverlayKernel.setArg(4, overAlocMem);
-		createOverlayKernel.setArg(5, gMemCheck);
-		createOverlayKernel.setArg(6, gBboxes);
 		std::cout << "C" << endl;
+		createOverlayKernel.setArg(1, gOverlay);
+		std::cout << "D" << endl;
+		createOverlayKernel.setArg(2, gCounter);
+		std::cout << "E" << endl;
+		createOverlayKernel.setArg(3, 2*N);
+		std::cout << "F" << endl;
+		createOverlayKernel.setArg(4, overAlocMem);
+		std::cout << "G" << endl;
+		createOverlayKernel.setArg(5, gMemCheck);
+		std::cout << "H" << endl;
+		createOverlayKernel.setArg(6, gBboxes);
+		std::cout << "I" << endl;
 		sim->queue->enqueueNDRangeKernel(createOverlayKernel, cl::NullRange, 
 				cl::NDRange(global_size, global_size),
 				cl::NDRange(local_size, local_size));
-		std::cout << "D" << endl;
+		std::cout << "J" << endl;
 		sim->queue->enqueueReadBuffer(gMemCheck, CL_TRUE, 0, sizeof (cl_uint), &memCheck);
 		sim->queue->enqueueReadBuffer(gCounter, CL_TRUE, 0, sizeof (cl_uint), &counter);
-		std::cout << "E" << endl;
+		std::cout << "K" << endl;
 		if (memCheck == 1) {
 			overAlocMem = counter + 1;
 			cerr << "Realokace pole na : " << overAlocMem << endl;
@@ -341,15 +351,16 @@ void CpuCollider::initialSortGpu(){
 
 		sim->queue->enqueueReadBuffer(gOverlay, CL_TRUE, 0, counter * sizeof (cl_uint2), tmp.data());
 
-		for(int i = 0; i < counter; i++){
-			par_id2_t ids = {tmp[0].lo, tmp[0].hi};
-			sim->pot.push_back(ids);
-		}
 
+		for(int i = 0; i < counter; i++){
+			if(!Scene_particles_may_collide(scene,&(sim->par[tmp[i].lo]),&(sim->par[tmp[i].hi]))) continue;
+			if(find(tmp[i].lo,tmp[i].hi)) continue;
+			if(tmp[i].lo > tmp[i].hi) std::swap(tmp[i].lo, tmp[i].hi);
+			addPot(tmp[i].lo, tmp[i].hi, /* useFree */ false);
+		}
 	} catch (cl::Error& e) {
 		cerr << "err: " << e.err() << "what: " << e.what() << endl;
 	}
-	
 	std::cout << "GPU code is OK" << std::endl;
 }
 

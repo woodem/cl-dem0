@@ -30,6 +30,7 @@ for x0,x1 in itertools.product(range(0,dim[0]),range(0,dim[1])):
 
 # walls/ground spheres are in loneGroups, but collide with spheres below (0b001) as well
 sim.scene.loneGroups=0b010
+sim.collideGpu = True
 
 import yade.pack
 sp=yade.pack.SpherePack()
