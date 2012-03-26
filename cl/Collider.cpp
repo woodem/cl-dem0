@@ -159,7 +159,7 @@ void CpuCollider::initialStep(){
 			if(!(mn<=mx)) throw std::runtime_error("#"+lexical_cast<string>(id)+", axis "+lexical_cast<string>(ax)+": min>max, "+lexical_cast<string>(mn)+">"+lexical_cast<string>(mx));
 			AxBound bMin(id,mn,true,mn==mx), bMax(id,mx,false,mn==mx);
 			bounds[ax][2*id]=bMin; bounds[ax][2*id+1]=bMax;
-			//
+#if 0	
 			if(useGpu){
 				if(2*id+1 == 1 || 2*id+1 ==5){
 					std::cout << "L/R : " << 2*id << " / " << 2*id+1 << std::endl;
@@ -167,6 +167,7 @@ void CpuCollider::initialStep(){
 					std::cout << "mx: " << mx << std::endl;
 				}
 			}
+#endif
 		}
 	}
 
@@ -210,13 +211,7 @@ void CpuCollider::initialStep(){
 
 void CpuCollider::initialSortGpu(){
 	size_t N=sim->par.size();
-	for (int i = 0; i < 2*N; i++){
-		if(bounds[0][i].coord < 0.6){
 
-			} else {
-				std::cout << "tu: " << i << " coord: " << bounds[0][i].coord << std::endl;
-			}
-		}
 	std::cout << "GPU" << std::endl;
 	cl::Buffer boundBufs[3];
 
@@ -228,26 +223,22 @@ void CpuCollider::initialSortGpu(){
 		++bits;
 	}
 
+    for (int ax:{0, 1, 2}){
+		boundBufs[ax] = cl::Buffer(*sim->context, CL_MEM_READ_WRITE,    powerOfTwo * sizeof (AxBound), NULL);
+        bounds[ax].resize(powerOfTwo);
+		sim->queue->enqueueWriteBuffer(boundBufs[ax], CL_TRUE, 0, powerOfTwo * sizeof (AxBound), bounds[ax].data());
+	}
+
 	int less = powerOfTwo - 2*N;
-	cerr << "=======================" << endl;
-	cerr << "powerOfTwo : " << powerOfTwo << endl;
-	cerr << "less : " << less << endl;
-	cerr << "=======================" << endl;
+//	cerr << "=======================" << endl;
+//	cerr << "powerOfTwo : " << powerOfTwo << endl;
+//	cerr << "less : " << less << endl;
+//	cerr << "=======================" << endl;
 
 	int local_size = 16;
 	int global_size = (trunc(trunc(sqrt(powerOfTwo / 2)) / local_size) +  1) * local_size;
 	//prepare size of bounds for bittonic-sort
-	std::cout << "priprava bufferu" << std::endl;
-	for (int ax:{0, 1, 2}){
-		std::cout << "1 ax: " << ax << std::endl;
-		boundBufs[ax] = cl::Buffer(*sim->context, CL_MEM_READ_WRITE,	powerOfTwo * sizeof (AxBound), NULL);
-			std::cout << "2" << std::endl;
-		bounds[ax].resize(powerOfTwo);
-			std::cout << "3" << std::endl;	
-		sim->queue->enqueueWriteBuffer(boundBufs[ax], CL_TRUE, 0, powerOfTwo * sizeof (AxBound), bounds[ax].data());
-			std::cout << "4" << std::endl;
-	}
-
+//	std::cout << "priprava bufferu" << std::endl;
 
 	std::cout << "create kernel" << std::endl;
 	try {
@@ -283,40 +274,82 @@ void CpuCollider::initialSortGpu(){
 		sim->queue->enqueueWriteBuffer(boundBufs[ax], CL_TRUE, 0, 2*N*sizeof (AxBound), bounds[ax].data());
 	}
 	std::cout << "shrink buffer OK" << std::endl;
-	
-	/*for (int i = 0; i < 2*N; i++){
-		if(bounds[0][i].coord > bounds[0][i+1].coord){
-			std::cout << bounds[0][i].coord << std::endl;
+
+	global_size = (trunc(trunc(sqrt(2*N)) / local_size) + 1) * local_size;
+	cl_int overAlocMem = 2*N;
+	cl_uint counter = 0;
+	cl_uint memCheck = 0;
+
+	try {
+		cl::Buffer gOverlay(*sim->context, CL_MEM_WRITE_ONLY, overAlocMem * sizeof (cl_uint2), NULL);
+		cl::Buffer gCounter(*sim->context, CL_MEM_READ_WRITE, sizeof (cl_uint), NULL);
+		cl::Buffer gMemCheck(*sim->context, CL_MEM_READ_WRITE, sizeof (cl_uint), NULL);
+		cl::Buffer gBboxes(*sim->context, CL_MEM_READ_ONLY, 6 * N * sizeof (cl_float), NULL); 
+
+		sim->queue->enqueueWriteBuffer(gMemCheck, CL_TRUE, 0, sizeof (cl_uint), &memCheck);
+		sim->queue->enqueueWriteBuffer(gCounter, CL_TRUE, 0, sizeof (cl_uint), &counter);
+		std::cout << "A" << endl;
+		sim->queue->enqueueWriteBuffer(gBboxes, CL_TRUE, 0, 6 * N * sizeof (cl_float), sim->bboxes.data());
+		std::cout << "B" << endl;
+		cl::Kernel createOverlayKernel(*sim->program, "createOverlay");
+		createOverlayKernel.setArg(0, boundBufs[0]);
+		createOverlayKernel.setArg(1, gOverlay);
+		createOverlayKernel.setArg(2, gCounter);
+		createOverlayKernel.setArg(3, 2*N);
+		createOverlayKernel.setArg(4, overAlocMem);
+		createOverlayKernel.setArg(5, gMemCheck);
+		createOverlayKernel.setArg(6, gBboxes);
+		std::cout << "C" << endl;
+		sim->queue->enqueueNDRangeKernel(createOverlayKernel, cl::NullRange, 
+				cl::NDRange(global_size, global_size),
+				cl::NDRange(local_size, local_size));
+		std::cout << "D" << endl;
+		sim->queue->enqueueReadBuffer(gMemCheck, CL_TRUE, 0, sizeof (cl_uint), &memCheck);
+		sim->queue->enqueueReadBuffer(gCounter, CL_TRUE, 0, sizeof (cl_uint), &counter);
+		std::cout << "E" << endl;
+		if (memCheck == 1) {
+			overAlocMem = counter + 1;
+			cerr << "Realokace pole na : " << overAlocMem << endl;
+			gOverlay = cl::Buffer(*sim->context, CL_MEM_WRITE_ONLY, overAlocMem * sizeof (cl_uint2), NULL);	
+			memCheck = 0;
+			counter = 0;
+			sim->queue->enqueueWriteBuffer(gMemCheck, CL_TRUE, 0, sizeof (cl_uint), &memCheck);
+			sim->queue->enqueueWriteBuffer(gCounter, CL_TRUE, 0, sizeof (cl_uint), &counter);
+
+			createOverlayKernel.setArg(1, gOverlay);
+			createOverlayKernel.setArg(2, gCounter);
+			createOverlayKernel.setArg(3, 2*N);
+			createOverlayKernel.setArg(4, overAlocMem);
+			createOverlayKernel.setArg(5, gMemCheck);
+			createOverlayKernel.setArg(6, gBboxes);
+
+			sim->queue->enqueueNDRangeKernel(createOverlayKernel, cl::NullRange, 
+				cl::NDRange(global_size, global_size),
+				cl::NDRange(local_size, local_size));
+
+			sim->queue->enqueueReadBuffer(gMemCheck, CL_TRUE, 0, sizeof (cl_uint), &memCheck);
+			sim->queue->enqueueReadBuffer(gCounter, CL_TRUE, 0, sizeof (cl_uint), &counter);
 		}
-	}*/
 
-	std::vector<AxBound> bounds1[3];
+		if (memCheck == 1) {
+			cerr << "Allocated memory insufficient." << endl;
+			abort();
+		}
+
+		vector<cl_uint2> tmp;
+		tmp.resize(counter);
+
+		sim->queue->enqueueReadBuffer(gOverlay, CL_TRUE, 0, counter * sizeof (cl_uint2), tmp.data());
+
+		for(int i = 0; i < counter; i++){
+			par_id2_t ids = {tmp[0].lo, tmp[0].hi};
+			sim->pot.push_back(ids);
+		}
+
+	} catch (cl::Error& e) {
+		cerr << "err: " << e.err() << "what: " << e.what() << endl;
+	}
 	
-	bounds1[0] = bounds[0];
-	bounds1[1] = bounds[1];
-	bounds1[2] = bounds[2];
-
-
-//	for(int ax:{0,1,2}){
-//		std::sort(bounds[ax].begin(),bounds[ax].end());
-//	}
-
-	std::cout << "test sorted " << std::endl;
-
-
-	for(int ax:{0,1,2}){
-	for(int i = 0;  i < 2*N; i++) {
-	//std::cout << "id: " << i << " : " << bounds[0][i].coord << " x " <<bounds[1][i].coord << " x " << bounds[2][i].coord << std::endl;
-	/*if(bounds[ax][i].getId() != bounds1[ax][i].getId()){
-		std::cout << "error: " << ax << "coord cpu/gpu" << bounds[ax][i].coord << "/" 
-			<< bounds1[ax][i].coord << std::endl;
-	}*/
-	}
-	}
-	std::cout << "test sorted OK : " << N << std::endl;
-
-	std::cout << bounds[0][2*N-2].coord << "/" << bounds[0][2*N-1].coord << "/" << bounds[0][2*N].coord << std::endl;
-
 	std::cout << "GPU code is OK" << std::endl;
 }
 

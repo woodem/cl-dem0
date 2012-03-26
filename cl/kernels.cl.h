@@ -647,7 +647,7 @@ void sortBitonic (
 		}
 	}
 
-	if(lesser.id >> -1 && greater.id != -1){
+	if(lesser.id << 1 && greater.id != -1){
 			tmp = lesser;
 			lesser = greater;
 			greater = tmp;
@@ -656,6 +656,91 @@ void sortBitonic (
     theArray[leftId] = sortIncreasing ? lesser : greater;
     
     theArray[rightId] = sortIncreasing ? greater : lesser;
+}
+
+/*
+* kernel for create overlay
+* @param data - array of AxBound data
+* @param overlay - output array with uint2[lo,hi] -> [id1, id2]
+* @param counter - position in overlay array
+* @param count - No. of Axbound 
+*/
+kernel
+void createOverlay (
+    global struct AxBound* data,
+    global uint2* overlay,
+    global uint* counter,
+    const uint count,
+    const uint alocMem,
+    global uint* memCheck,
+    global float* bboxes)
+{
+    uint size = get_global_size(1);
+    uint gid_x = get_global_id(0);
+    uint gid_y = get_global_id(1);
+    uint threadId = gid_x + gid_y * size;
+
+    if(threadId > (count - 1)){
+       return;
+    }
+
+	struct AxBound leftItem = data[threadId];
+	struct AxBound rightItem;
+
+    uint idLeft = leftItem.id;
+    uint isMin = idLeft & 1;
+    uint isThin = idLeft & 2;
+    idLeft = idLeft >> 2;
+    
+    if((isThin == 2) || (isMin != 1)){
+        return;
+    }
+    
+    uint i = threadId+1;
+	rightItem = data[i];
+    uint idR = rightItem.id;
+    uint idRight = idR >> 2;
+
+    float minAy = bboxes[idLeft * 6 + 1];
+    float maxAy = bboxes[idLeft * 6 + 4];
+
+    float minAz = bboxes[idLeft * 6 + 2];
+    float maxAz = bboxes[idLeft * 6 + 5];
+
+    float min1y;
+    float min1z;
+    float max1y;
+    float max1z;
+
+    while (idRight != idLeft){
+        uint isMinR = idR & 1;
+        if(isMinR == 1 && leftItem.coord != rightItem.coord && rightItem.coord != bboxes[idLeft * 6 + 3]){
+
+		//Y axis
+        min1y = bboxes[idRight];
+        max1y = bboxes[idRight];
+      
+        if ((maxAy > min1y) && (minAy < max1y)){
+            min1z = bboxes[idRight * 6 + 2];
+            max1z = bboxes[idRight * 6 + 5];
+           
+        //Z axis
+        if ((maxAz > min1z) && (minAz < max1z)){
+            uint oldC = atom_inc(&counter[0]);
+            if((oldC + 1) > alocMem){
+                memCheck[0] = 1;
+            } else {
+                overlay[oldC].lo = min(idLeft, idRight);
+                overlay[oldC].hi = max(idRight, idLeft);
+            }
+           } 
+        }
+		}
+        i++;
+		rightItem = data[i];
+        idR = rightItem.id; 
+        idRight = idR >> 2;
+        }
 }
 
 
