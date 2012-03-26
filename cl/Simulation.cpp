@@ -180,6 +180,24 @@ namespace clDem{
 		
 		cpuCollider->useGpu=collideGpu;
 
+		/* if verletDist is negative, it is a fraction of the smallest spherical particle */
+		if(scene.verletDist<0){
+			Real minR=INFINITY;
+			for(const Particle& p: par){
+				if(par_shapeT_get(&p)!=Shape_Sphere) continue;
+				minR=min(minR,p.shape.sphere.radius);
+			}
+			if(isinf(minR)) throw std::runtime_error("With scene.verletDist<0, there must be at least one spherical particle, which is then used to determine the actual value of verletDist.");
+			scene.verletDist=fabs(scene.verletDist)*minR;
+			cerr<<"Setting verletDist="<<scene.verletDist<<endl;
+		}
+
+		// if dt is negative, use given fraction of pWaveDt
+		if(scene.dt<0){
+			scene.dt=fabs(scene.dt)*pWaveDt();
+			cerr<<"Setting Δt="<<scene.dt<<endl;
+		}
+
 		// create buffers, enqueue copies to the device
 		writeBufs(/*wait*/true);
 		long goalStep=scene.step+_nSteps;
@@ -317,6 +335,7 @@ namespace clDem{
 			}
 			ret=std::min(ret,p.shape.sphere.radius/sqrt(young/density));
 		}
+		if(isinf(ret)) throw std::runtime_error("pWaveDt computed infinity (no spherical particle in the simulation?)");
 		return ret;
 	}
 
@@ -428,8 +447,12 @@ py::tuple Simulation::getBbox(par_id_t id){
 	return py::make_tuple(Vector3r(bboxes[id*6+0],bboxes[id*6+1],bboxes[id*6+2]),Vector3r(bboxes[id*6+3],bboxes[id*6+4],bboxes[id*6+5]));
 }
 
-int Simulation::addClump(vector<Particle>& pp){
+#define CLUMP_DBG(a)
+//#define CLUMP_DBG(a) cerr<<a<<endl;
+
+py::tuple Simulation::addClump(const vector<Particle>& pp){
 	if(pp.empty()) throw std::runtime_error("Creating clump with zero particles");
+	py::list memberIds;
 	// mass, static momentum, inertia
 	Real M=0.;
 	Vector3r Sg=Vector3r::Zero();
@@ -445,33 +468,51 @@ int Simulation::addClump(vector<Particle>& pp){
 	}
 	// inertia with global orientation but central position
 	Vector3r cPos=Sg/M;
+	CLUMP_DBG("M=\n"<<M<<"\nIg=\n"<<Ig<<"\nSg=\n"<<Sg.transpose());
 	Ig=inertiaTranslate(Ig,-M,cPos); 
+	CLUMP_DBG("Ic_orientG=\n"<<Ig);
 	// find principal axes
 	Eigen::SelfAdjointEigenSolver<Matrix3r> eig(Ig);
 	Quaternionr cOri=Quaternionr(eig.eigenvectors());
+	cOri.normalize();
 
 	Particle clump;
 	clump.mass=M;
 	clump.inertia=fromEigen(eig.eigenvalues());
+	CLUMP_DBG("inertia="<<toEigen(clump.inertia).transpose());
 	clump.pos=fromEigen(cPos);
 	clump.ori=fromEigen(cOri);
+	Eigen::AngleAxis<Real> aa(cOri);
+	CLUMP_DBG("pos="<<toEigen(clump.pos).transpose()<<", ori="<<aa.axis().transpose()<<":"<<aa.angle());
 	clump.vel=clump.angVel=fromEigen(Vector3r::Zero().eval());
 
 	par_shapeT_set(&clump,Shape_Clump);
 	clump.shape.clump=Clump();
 	clump.shape.clump.ix=clumps.size(); // start at the end of the current clump array
+
+	par_id_t clumpId=par.size()+pp.size();
  
 	for(const Particle& p: pp){
 		par.push_back(p);   // insert particle into par
+		Particle& p2(*par.rbegin());
+		par_clumped_set(&p2,true);
+		p2.clumpId=clumpId;
 		ClumpMember cm;
 		cm.id=par.size()-1; // last index in par is the inserted particle
-		cm.relPos=fromEigen(cOri.conjugate()*(cPos-toEigen(p.pos)));
+		memberIds.append(cm.id);
+		cm.relPos=fromEigen(cOri.conjugate()*(toEigen(p.pos)-cPos));
 		cm.relOri=fromEigen(cOri.conjugate()*toEigen(p.ori));
+		Eigen::AngleAxis<Real> aa(toEigen(cm.relOri));
+		CLUMP_DBG("relPos="<<toEigen(cm.relPos).transpose()<<", ori="<<aa.axis().transpose()<<":"<<aa.angle());
 		clumps.push_back(cm);
 	}
 	clumps.push_back(ClumpMember()); // add invalid item as sentinel
 
 	// add the clump itself
 	par.push_back(clump);
+	// did we get it false??
+	assert(par.size()-1==clumpId);
+
+	return py::make_tuple(par.size()-1,memberIds);
 }
 

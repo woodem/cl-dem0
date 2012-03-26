@@ -143,11 +143,11 @@ inline void Scene_interrupt_reset(struct Scene* s){
 
 inline void Scene_init(struct Scene* s){
 	s->t=0;
-	s->dt=1e-8;
+	s->dt=-.5; // fraction of pWaveDt
 	s->step=-1;
 	s->gravity=Vec3_set(0,0,0);
 	s->damping=0.;
-	s->verletDist=-1.; // no interrupts due to spheres getting out of bboxes
+	s->verletDist=-.2; // fraction of smallest sphere's radius
 	s->loneGroups=0;
 	Scene_interrupt_reset(s);
 	s->updateBboxes=false;
@@ -188,6 +188,8 @@ inline bool Scene_particles_may_collide(global struct Scene* s, global struct Pa
 	// check if one of the particles is a clump, in that case there is no collision possible
 	if((par_groups_get_global(p1) & par_groups_get_global(p2) & s->loneGroups)!=0) return false;
 	if((par_groups_get_global(p1) & par_groups_get_global(p2))==0) return false;
+	if(par_shapeT_get_global(p1)==Shape_Clump || par_shapeT_get_global(p2)==Shape_Clump) return false;
+	if(p1->clumpId>=0 && p1->clumpId==p2->clumpId) return false;
 	return true;
 }
 

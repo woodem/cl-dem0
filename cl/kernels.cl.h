@@ -112,7 +112,8 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	PRINT_TRACE("integrator_P");
 
 	global struct Particle *p=&(par[get_global_id(0)]);
-	if(par_clumped_get_global(p)) return; // clumped particles are handled by the clump itself
+	if(par_clumped_get_global(p))	return; // clumped particles are handled by the clump itself
+
 	struct Particle pp=*p;
 	Real dt=scene->dt;
 	Vec3 gravity=scene->gravity;
@@ -120,11 +121,14 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	Real verletDist=scene->verletDist;
 
 	bool isClump=(par_shapeT_get(&pp)==Shape_Clump);
+	bool isClumped=par_clumped_get(&pp);
 	int dofs=par_dofs_get(&pp);
+
 	Vec3 accel=0., angAccel=0.;
 	// optimize for particles with all translations/rotations (vector ops)
 	// aspherical integration (if p->inertia has the same components)
 
+	// for stand-alone particles and clumps
 	// use vector ops for particles free in all 3 dofs, and on-eby-one only for those which are partially fixed
 	pp.force+=gravity*pp.mass; // put this up here so that grav appears in the force term
 	// some translations are allowed, compute gravity contribution
@@ -132,7 +136,9 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 		if((dofs & par_dofs_trans)!=0) ADD_ENERGY(scene,grav,-dot(gravity,pp.vel)*pp.mass*dt);
 	#endif
 
-	if(isClump){ Clump_collectFromMembers(&pp,clumps,par); }
+	if(isClump) Clump_collectFromMembers(&pp,clumps,par);
+
+	bool useAspherical=(pp.inertia.x!=pp.inertia.y || pp.inertia.y!=pp.inertia.z);
 
 	if((dofs&par_dofs_trans)==par_dofs_trans){ // all translations possible, use vector expr
 		accel+=pp.force/pp.mass;
@@ -142,31 +148,25 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 			else ((Real*)(&accel))[ax]=0.;
 		}
 	}
-	if((dofs&par_dofs_rot)==par_dofs_rot){
-		// spherical particle
-		//#define NO_ASPHERICAL
 
-		#ifndef NO_ASPHERICAL
-			if(pp.inertia.x==pp.inertia.y && pp.inertia.y==pp.inertia.z){
-		#endif
-				angAccel+=pp.torque/pp.inertia.x;
-		#ifndef NO_ASPHERICAL
-			} else {
-				// aspherical particles
-				Mat3 A=Quat_toMat3(Quat_conjugate(pp.ori)); // rotation matrix from global to local r.f.
-				Vec3 l_n=pp.angMom+dt/2.*pp.torque; // global angular momentum at time n
-				Vec3 l_b_n=Mat3_multV(A,l_n); // local angular momentum at time n
-				Vec3 angVel_b_n=l_b_n/pp.inertia; // local angular velocity at time n
-				Quat dotQ_n=Quat_dDt(pp.ori,angVel_b_n); // dQ/dt at time n
-				Quat Q_half=pp.ori+dt/2*dotQ_n; // Q at time n+1/2
-				pp.angMom+=dt*pp.torque; // global angular momentum at time n+1/2
-				Vec3 l_b_half=Mat3_multV(A,pp.angMom); // local angular momentum at time n+1/2
-				Vec3 angVel_b_half=l_b_half/pp.inertia; // local angular velocity at time n+1/2
-				Quat dotQ_half=Quat_dDt(Q_half,angVel_b_half); // dQ/dt at time n+1/2
-				pp.ori=normalize(pp.ori+dt*dotQ_half); // Q at time n+1
-				pp.angVel=Quat_rotate(pp.ori,angVel_b_half); // global angular velocity at time n+1/2
-			}
-		#endif
+	if((dofs&par_dofs_rot)==par_dofs_rot){
+		if(useAspherical){
+			angAccel+=pp.torque/pp.inertia.x;
+		} else {
+			// aspherical particles
+			Mat3 A=Quat_toMat3(Quat_conjugate(pp.ori)); // rotation matrix from global to local r.f.
+			Vec3 l_n=pp.angMom+dt/2.*pp.torque; // global angular momentum at time n
+			Vec3 l_b_n=Mat3_multV(A,l_n); // local angular momentum at time n
+			Vec3 angVel_b_n=l_b_n/pp.inertia; // local angular velocity at time n
+			Quat dotQ_n=Quat_dDt(pp.ori,angVel_b_n); // dQ/dt at time n
+			Quat Q_half=pp.ori+dt/2*dotQ_n; // Q at time n+1/2
+			pp.angMom+=dt*pp.torque; // global angular momentum at time n+1/2
+			Vec3 l_b_half=Mat3_multV(A,pp.angMom); // local angular momentum at time n+1/2
+			Vec3 angVel_b_half=l_b_half/pp.inertia; // local angular velocity at time n+1/2
+			Quat dotQ_half=Quat_dDt(Q_half,angVel_b_half); // dQ/dt at time n+1/2
+			pp.ori=normalize(pp.ori+dt*dotQ_half); // Q at time n+1
+			pp.angVel=Quat_rotate(pp.ori,angVel_b_half); // global angular velocity at time n+1/2
+		}
 	} else {
 		// fallback to spherical integrator for selective DOFs
 		for(int ax=0; ax<3; ax++){
@@ -175,12 +175,13 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 		}
 	}
 	#ifdef DUMP_INTEGRATOR
-		if(dofs!=0) printf("$%ld/%d: v=%v3g, ω=%v3g, F=%v3g, T=%v3g, a=%v3g",scene->step,get_global_id(0),pp.vel,pp.angVel,pp.force,pp.torque,accel);
+		if(dofs!=0) printf("$%ld/%d: v=%v3g, ω=%v3g, L=%v3g, F=%v3g, T=%v3g, a=%v3g",scene->step,get_global_id(0),pp.vel,pp.angVel,pp.angMom,pp.force,pp.torque,accel);
 	#endif
 	if(damping!=0){
 		ADD_ENERGY(scene,damp,(dot(fabs(pp.vel),fabs(pp.force))+dot(fabs(pp.angVel),fabs(pp.torque)))*damping*dt);
 		accel   =accel   *(1-damping*sign(pp.force *(pp.vel   +accel   *dt/2)));
-		angAccel=angAccel*(1-damping*sign(pp.torque*(pp.angVel+angAccel*dt/2)));
+		if(!useAspherical) angAccel=angAccel*(1-damping*sign(pp.torque*(pp.angVel+angAccel*dt/2)));
+		else angAccel=angAccel*(1-damping*sign(pp.torque*pp.angVel));
 	}
 
 	// this estimates velocity at next on-step using current accel; it follows how yade computes it currently
@@ -196,11 +197,13 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	#endif
 	pp.ori=Quat_multQ(Quat_fromRotVec(pp.angVel*dt),pp.ori); // checks automatically whether |rotVec|==0
 
+	CL_ASSERT2(verletDist>=0 || isnan(verletDist),"verletDist should be NaN for disabling collision detection; negative value should be used as fraction of minimal sphere radius before kernels are run, and corresponding positive value should be set.");
 	if(isClump){
-		// this checks bboxes as well, and sets updateBboxes if necessary
-		Clump_applyToMembers(&pp,clumps,par);
+		// this also checks bboxes of clump members, sets updateBboxes if necessary
+		// force and torque are reset here as well
+		Clump_applyToMembers(&pp,clumps,par,&(scene->updateBboxes),verletDist);
 	} else {
-		if(verletDist>=0 && (Vec3_sqNorm(pp.pos-pp.bboxPos)>pown(verletDist,2) || isnan(pp.bboxPos.s0))) scene->updateBboxes=true;
+		if(!isnan(verletDist) && ((Vec3_sqNorm(pp.pos-pp.bboxPos)>pown(verletDist,2) || isnan(pp.bboxPos.s0)))) scene->updateBboxes=true;
 	}
 
 	/* write back */

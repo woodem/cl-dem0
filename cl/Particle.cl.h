@@ -52,6 +52,8 @@ int par_shapeT_get(const struct Particle* p);
 // http://gpu.doxos.eu/trac/wiki/OpenCLDataStructures
 struct Particle{
 	int flags;
+	// negative for particles which are not within clump at all
+	par_id_t clumpId; 
 	Vec3 pos, vel, angVel, bboxPos;
 	Quat ori;
 	Vec3 inertia, angMom; // angular momentum for aspherical particles
@@ -127,6 +129,7 @@ constant int par_groups_all=(1<<PAR_LEN_groups)-1;
 
 static void Particle_init(struct Particle* p){
 	p->flags=0;
+	p->clumpId=-1;
 	p->pos=Vec3_set(NAN,NAN,NAN);
 	p->bboxPos=Vec3_set(NAN,NAN,NAN);
 	p->ori=Quat_identity();
@@ -156,7 +159,7 @@ void Clump_collectFromMembers(struct Particle* C, global struct ClumpMember* clu
 	}
 }
 
-void Clump_applyToMembers(struct Particle* C, global struct ClumpMember* clumps, global struct Particle* par){
+void Clump_applyToMembers(struct Particle* C, global struct ClumpMember* clumps, global struct Particle* par, global bool* updateBboxes, Real verletDist){
 	for(size_t i=C->shape.clump.ix; clumps[i].id>=0; i++){
 		// work on the local copy instead?
 		const struct ClumpMember cm=clumps[i];
@@ -165,6 +168,8 @@ void Clump_applyToMembers(struct Particle* C, global struct ClumpMember* clumps,
 		cp->ori=Quat_multQ(C->ori,cm.relOri);
 		cp->vel=C->vel+cross(C->angVel,cp->pos-C->pos);
 		cp->angVel=C->angVel;
+		cp->force=cp->torque=(Vec3)0.;
+		if(/*non-NULL*/ updateBboxes && !isnan(verletDist) && (isnan(cp->bboxPos.s0) ||  Vec3_sqNorm(cp->pos-cp->bboxPos)>pown(verletDist,2))) *updateBboxes=true;
 	}
 }
 
@@ -231,7 +236,6 @@ namespace clDem{
 			// from-python as list
 			custom_vector_from_seq<Particle>();
 			// to-python as ParticleList proxy
-			//py::class_<std::vector<Particle>>("ParticleList").def(py::vector_indexing_suite<std::vector<Particle>>());
 			py::class_<std::vector<Particle>>("ParticleList").def(py::vector_indexing_suite<std::vector<Particle>>());
 		}
 	#endif

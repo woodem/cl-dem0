@@ -49,6 +49,9 @@
 #endif
 
 
+#define CL_ASSERT2(what,explanation) if(!(what)) printf(__FILE__ ":%d: ERROR: assertion " #what " failed. " explanation "\n",__LINE__)
+#define CL_ASSERT(what) CL_ASSERT2(what,)
+
 /* to avoid symbol clashes in shared libs, define our namespace clDem */
 #ifdef __cplusplus
 	#define CLDEM_NAMESPACE_BEGIN() namespace clDem{

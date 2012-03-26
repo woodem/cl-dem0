@@ -97,7 +97,7 @@ namespace clDem{
 		Real pWaveDt();
 		py::tuple getBbox(par_id_t id);
 		py::list saveVtk(string prefix, bool compress=true, bool ascii=false);
-		int addClump(vector<Particle>&);
+		py::tuple addClump(const vector<Particle>&);
 
 		Matrix3r inertiaTranslate(const Matrix3r& I, const Real m, const Vector3r& off){
 			return I+m*(off.dot(off)*Matrix3r::Identity()-off*off.transpose());
