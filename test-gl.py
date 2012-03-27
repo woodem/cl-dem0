@@ -9,7 +9,8 @@ import pylab, itertools, random
 
 from yade import *
 
-dim=80,80,20
+dim=80,80,24
+genDim=8,8,8 # dim will be made by generating genDim and copying
 margin=3
 r=.01
 ktDivKn=.2
@@ -38,7 +39,9 @@ sim.collideGpu = True
 
 import yade.pack
 sp=yade.pack.SpherePack()
-sp.makeCloud((2*r*margin,2*r*margin,2*r),((dim[0]-margin)*2*r,(dim[1]-margin)*2*r,dim[2]*2*r),r,rRelFuzz=.5)
+sp.makeCloud((0,0,0),2*r*Vector3(genDim),r,rRelFuzz=.5,periodic=True)
+sp.translate((2*r*margin)*Vector3.Ones)
+sp.cellRepeat([(dim[i]-2*margin)/genDim[i] for i in (0,1,2)])
 for center,radius in sp:
 	sim.par.append(clDem.mkSphere(center,radius,sim,matId=0,groups=0b001,fixed=False))
 	sim.par[-1].vel=(0,0,-.05)
