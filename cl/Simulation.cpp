@@ -66,6 +66,7 @@ namespace clDem{
 		scene.arrAlloc[ARR_CJOURNAL]=cJournal.size();
 		// not modified from within the simulation
 		scene.arrAlloc[ARR_CLUMPS]=scene.arrSize[ARR_CLUMPS]=clumps.size();
+		scene.arrAlloc[ARR_PAR]=scene.arrSize[ARR_PAR]=par.size();
 
 		// write scene
 		sceneBuf=writeBuf(scene);
@@ -309,9 +310,9 @@ namespace clDem{
 				cl::Kernel k=makeKernel(ki.name);
 				switch(ki.argsType){
 					case KARGS_SINGLE: queue->enqueueTask(k); break;
-					case KARGS_PAR: queue->enqueueNDRangeKernel(k,cl::NDRange(0),cl::NDRange(bufSize[_par].size),cl::NDRange(1)); break;
-					case KARGS_CON: queue->enqueueNDRangeKernel(k,cl::NDRange(0),cl::NDRange(bufSize[_con].size),cl::NDRange(1)); break;
-					case KARGS_POT: queue->enqueueNDRangeKernel(k,cl::NDRange(0),cl::NDRange(bufSize[_pot].size),cl::NDRange(1)); break;
+					case KARGS_PAR: queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_par].size,device),cl::NDRange()); break;
+					case KARGS_CON: queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_con].size,device),cl::NDRange()); break;
+					case KARGS_POT: queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_pot].size,device),cl::NDRange()); break;
 					default: throw std::runtime_error("Invalid KernelInfo.argsType value "+lexical_cast<string>(ki.argsType));
 				}
 				LOOP_DBG("{"<<ki.name<<"}");

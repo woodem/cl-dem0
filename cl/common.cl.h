@@ -15,7 +15,6 @@
 #define AMD_UNION_ALIGN_BUG_WORKAROUND() __attribute__((aligned(128)))
 
 
-
 #ifdef __OPENCL_VERSION__
 	#define static
 	typedef short2 cl_short2;
@@ -46,6 +45,24 @@
 	template<typename T> T atom_cmpxchg(T* p, const T& cmp, const T& val){ T old=*p; *p=(old==cmp?val:old); return old; }
 	template<typename T> T atom_xchg(T* p, const T& val){ T old=*p; *p=val; return old; }
 	template<typename T> T atom_inc(T* p){ T old=*p; (*p)++; return old; }
+#endif
+
+// these functions belong together
+#ifdef __cplusplus
+	static cl::NDRange makeLinear3DRange(size_t i, const shared_ptr<cl::Device> dev){
+		assert(dev->getInfo<CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS>()>=3);
+		vector<size_t> wis=dev->getInfo<CL_DEVICE_MAX_WORK_ITEM_SIZES>();
+		assert(wis.size()>=3);
+		wis.resize(3); // in case it is greater than 3
+		size_t iMax=wis[0]*wis[1]*wis[2];
+		if(i>iMax) throw std::runtime_error("makeLinearNDRange: required number of items ("+lexical_cast<string>(i)+" is bigger than the device's maximum "+lexical_cast<string>(iMax)+" ("+lexical_cast<string>(wis[0])+"×"+lexical_cast<string>(wis[1])+"×"+lexical_cast<string>(wis[2])+")");
+		if(i<=wis[2]) return cl::NDRange(1,1,i);
+		if(i<=wis[1]*wis[2]) return cl::NDRange(1,i/wis[2],wis[2]);
+		return cl::NDRange(i/(wis[1]*wis[2]),wis[1],wis[2]);
+	}
+#endif
+#ifdef __OPENCL_VERSION__
+	static size_t getLinearWorkItem(){ return get_global_id(0)*(get_global_size(1)*get_global_size(2))+get_global_id(1)*get_global_size(2)+get_global_id(2); }
 #endif
 
 

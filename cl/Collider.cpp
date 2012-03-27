@@ -175,7 +175,6 @@ void CpuCollider::initialStep(){
 
 	if(useGpu) {
 		initialSortGpu();
-
 	} else {
 		// sort initial bounds
 		for(int ax:{0,1,2}){
@@ -382,7 +381,6 @@ void CpuCollider::initialSortGpu(){
 
 
 void CpuCollider::incrementalStep(){
-	//throw std::runtime_error("CpuCollider::incrementalStep not yet implemented!");
 	replayJournal();
 	checkConsistency();
 	updateBounds();

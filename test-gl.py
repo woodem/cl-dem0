@@ -7,6 +7,8 @@ from miniEigen import *
 from math import *
 import pylab, itertools, random
 
+from yade import *
+
 dim=30,30,4
 margin=12
 r=.01
@@ -48,7 +50,7 @@ import yade.log
 import yade.gl
 from yade import timing
 if 1: # run on both
-	O.scene=yade.cld.CLDemRun.clDemToYade(sim,stepPeriod=20,relTol=1e-5)
+	O.scene=yade.cld.CLDemRun.clDemToYade(sim,stepPeriod=20,relTol=-1e-5)
 	#O.timingEnabled=True
 	# remove last engine and the clDem field
 	#O.scene.engines=O.scene.engines[0:-1]

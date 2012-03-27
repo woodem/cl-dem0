@@ -83,11 +83,12 @@ enum _int_flags {
 	INT_BBOXES=8,
 };
 // dynamic arrays indices
-enum _dynarrays { ARR_CON=0, ARR_CONFREE, ARR_POT, ARR_POTFREE, ARR_CJOURNAL, ARR_CLUMPS, ARR_NUM };
+enum _dynarrays { ARR_PAR=0, ARR_CON, ARR_CONFREE, ARR_POT, ARR_POTFREE, ARR_CJOURNAL, ARR_CLUMPS, ARR_NUM };
 
 #ifdef __cplusplus
 static string arrName(int arrIx){
 	switch(arrIx){
+		case ARR_PAR: return "PAR";
 		case ARR_CON: return "CON";
 		case ARR_CONFREE: return "CONFREE";
 		case ARR_POT: return "POT";
@@ -163,6 +164,7 @@ inline Scene::Scene(){ Scene_init(this); }
 
 static py::dict Scene_arr_get(struct Scene* s){
 	py::dict ret;
+	ret["par"]=py::make_tuple(s->arrSize[ARR_PAR],s->arrAlloc[ARR_PAR]);
 	ret["con"]=py::make_tuple(s->arrSize[ARR_CON],s->arrAlloc[ARR_CON]);
 	ret["conFree"]=py::make_tuple(s->arrSize[ARR_CONFREE],s->arrAlloc[ARR_CONFREE]);
 	ret["pot"]=py::make_tuple(s->arrSize[ARR_POT],s->arrAlloc[ARR_POT]);

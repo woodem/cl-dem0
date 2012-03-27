@@ -46,7 +46,7 @@ CLDEM_NAMESPACE_END()
 #ifdef cl_amd_printf
 	#define PRINT_TRACE(name)
 #else
-	#define PRINT_TRACE(name) // { if(get_global_id(0)==0) printf("%s:%-4d %4ld/%d %s\n",__FILE__,__LINE__,scene->step,substep,name); }
+	#define PRINT_TRACE(name) // { if(getLinearWorkItem()==0) printf("%s:%-4d %4ld/%d %s\n",__FILE__,__LINE__,scene->step,substep,name); }
 #endif
 
 #if 1
@@ -111,7 +111,10 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	if(Scene_skipKernel(scene,substep)) return;
 	PRINT_TRACE("integrator_P");
 
-	global struct Particle *p=&(par[get_global_id(0)]);
+	size_t pid=getLinearWorkItem();
+	if(pid>=scene->arrSize[ARR_PAR]) return;
+
+	global struct Particle *p=&(par[pid]);
 	if(par_clumped_get_global(p))	return; // clumped particles are handled by the clump itself
 
 	struct Particle pp=*p;
@@ -175,11 +178,11 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 		}
 	}
 	#ifdef DUMP_INTEGRATOR
-		if(dofs!=0) printf("$%ld/%d: v=%v3g, ω=%v3g, L=%v3g, F=%v3g, T=%v3g, a=%v3g",scene->step,get_global_id(0),pp.vel,pp.angVel,pp.angMom,pp.force,pp.torque,accel);
+		if(dofs!=0) printf("$%ld/%d: v=%.17v3g, ω=%.17v3g, L=%.17v3g, F=%.17v3g, T=%.17v3g, a=%.17v3g",scene->step,get_global_id(0),pp.vel,pp.angVel,pp.angMom,pp.force,pp.torque,accel);
 	#endif
 	if(damping!=0){
 		ADD_ENERGY(scene,damp,(dot(fabs(pp.vel),fabs(pp.force))+dot(fabs(pp.angVel),fabs(pp.torque)))*damping*dt);
-		accel   =accel   *(1-damping*sign(pp.force *(pp.vel   +accel   *dt/2)));
+		accel=accel*(1-damping*sign(pp.force*(pp.vel+accel*dt/2)));
 		if(!useAspherical) angAccel=angAccel*(1-damping*sign(pp.torque*(pp.angVel+angAccel*dt/2)));
 		else angAccel=angAccel*(1-damping*sign(pp.torque*pp.angVel));
 	}
@@ -193,7 +196,7 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	pp.angVel+=angAccel*dt;
 	pp.pos+=pp.vel*dt;
 	#ifdef DUMP_INTEGRATOR
-		if(dofs!=0) printf(", aDamp=%v3g, vNew=%v3g, posNew=%v3g\n",accel,pp.vel,pp.pos);
+		if(dofs!=0) printf(", aDamp=%.17v3g, vNew=%.17v3g, posNew=%.17v3g\n",accel,pp.vel,pp.pos);
 	#endif
 	pp.ori=Quat_multQ(Quat_fromRotVec(pp.angVel*dt),pp.ori); // checks automatically whether |rotVec|==0
 
@@ -225,7 +228,8 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
 	PRINT_TRACE("updateBboxes_P");
 
 	// not immediate since all threads must finish
-	par_id_t id=get_global_id(0);
+	par_id_t id=getLinearWorkItem();
+	if(id>=scene->arrSize[ARR_PAR]) return;
 	if(id==0) Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE | INT_NOT_DESTRUCTIVE | INT_BBOXES);
 
 	global struct Particle *p=&par[id];
@@ -261,7 +265,7 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
 kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 	const int substep=SUB_checkPotCon;
 	if(Scene_skipKernel(scene,substep)) return;
-	size_t cid=get_global_id(0);
+	size_t cid=getLinearWorkItem();
 	if(cid>=scene->arrSize[ARR_POT]) return; // in case we are past real number of contacts
 	par_id2_t ids=pot[cid];
 	if(ids.s0<0 || ids.s1<0) return; // deleted contact
@@ -376,7 +380,7 @@ void computeL6GeomGeneric(struct Contact* c, const Vec3 pos1, const Vec3 vel1, c
 kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 	const int substep=SUB_contCompute;
 	if(Scene_skipKernel(scene,substep)) return;
-	size_t cid=get_global_id(0);
+	size_t cid=getLinearWorkItem();
 	if(cid>=scene->arrSize[ARR_CON]) return; // in case we are past real number of contacts
 	struct Contact c=con[cid];
 	if(c.ids.s0<0 || c.ids.s1<0) return; // deleted contact
@@ -528,10 +532,11 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 				} else if(con_physT_get(&c)==Phys_FrictPhys){
 					kt=c.phys.frict.kT;
 					kn=c.phys.frict.kN;
-				} else printf("ERROR: $$%ld+%ld: unhandled physT %d for broken energy tracking.",c.ids.s0,c.ids.s1,con_hysT_get(&c));
+				} else printf("ERROR: $$%ld+%ld: unhandled physT %d for broken energy tracking.",c.ids.s0,c.ids.s1,con_physT_get(&c));
 				double fn=kn*c.geom.l6g.uN; double2 ft=c.force.yz+dt*kt*c.geom.l6g.vel.yz;
 				double E=.5*(fn*fn/kn+dot(ft,ft)/kt);
 				ADD_ENERGY(scene,broken,E);
+			}
 		#endif
 		// append contact to conFree (with possible allocation failure)
 		// if there is still bbox overlap, append to pot
@@ -567,7 +572,9 @@ kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST){
 	PRINT_TRACE("forcesToParticle_C");
 
 	/* how to synchronize access to particles? */
-	const struct Contact c=con[get_global_id(0)];
+	long cid=getLinearWorkItem();
+	if(cid>=scene->arrSize[ARR_CON]) return;
+	const struct Contact c=con[cid];
 	if(con_geomT_get(&c)==0) return;
 	global struct Particle *p1=&(par[c.ids.x]), *p2=&(par[c.ids.y]);
 	Mat3 R_T=Mat3_transpose(c.ori);
