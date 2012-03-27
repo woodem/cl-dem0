@@ -640,14 +640,14 @@ void sortBitonic (
     struct AxBound lesser = (leftElement.coord > rightElement.coord)
                                  ? rightElement : leftElement;
 	if(lesser.coord == greater.coord){
-		if(lesser.id >> 2 > greater.id >>2){
+		if(lesser.id >> 2 > greater.id >> 2){
 			tmp = lesser;
 			lesser = greater;
 			greater = tmp;
 		}
 	}
 
-	if(lesser.id << 1 && greater.id != -1){
+	if(lesser.id >> 2 == -1 && greater.id >> 2 != -1){
 			tmp = lesser;
 			lesser = greater;
 			greater = tmp;
@@ -691,6 +691,7 @@ void createOverlay (
     uint isMin = idLeft & 1;
     uint isThin = idLeft & 2;
     idLeft = idLeft >> 2;
+	//printf("idLeft: %d\n", idLeft);
     
     if((isThin == 2) || (isMin != 1)){
         return;
@@ -716,31 +717,41 @@ void createOverlay (
         uint isMinR = idR & 1;
         if(isMinR == 1 && leftItem.coord != rightItem.coord && rightItem.coord != bboxes[idLeft * 6 + 3]){
 
-		//Y axis
+		//Y axiss
+
         min1y = bboxes[idRight * 6 + 1];
         max1y = bboxes[idRight * 6 + 4];
       
         if ((maxAy > min1y) && (minAy < max1y)){
             min1z = bboxes[idRight * 6 + 2];
             max1z = bboxes[idRight * 6 + 5];
-           
+    //  if(count * 3 < idLeft * 6 + 5 || count * 3 < idRight * 6 + 5){
+		  //printf("L :%d, R: %d\n", idLeft * 6 + 5, idRight);
+	 // }
+	//		printf("max: %d\n", idLeft * 6 + 5);
+	//	printf("Active-> minY: %f, maxY: %f, minZ: %f, maxZ: %f\n", minAy, maxAy, minAz, maxAz);
+	//	printf("minX: %d, maxX: %d, minY: %d, maxY: %d, minZ: %d, maxZ: %d\n", bboxes[idLeft * 6 + 0], bboxes[idLeft * 6 + 3], min1y, max1y, min1z, max1z);	
         //Z axis
         if ((maxAz > min1z) && (minAz < max1z)){
             uint oldC = atom_inc(&counter[0]);
             if((oldC + 1) > alocMem){
+	//			printf("tu\n");
                 memCheck[0] = 1;
             } else {
+				//printf("L: %d, R: %d\n", idLeft, idRight);
                 overlay[oldC].lo = min(idLeft, idRight);
                 overlay[oldC].hi = max(idRight, idLeft);
             }
            } 
         }
 		}
+		//if(i > count)
+		//	printf("i: %d\n", i);
         i++;
 		rightItem = data[i];
         idR = rightItem.id; 
         idRight = idR >> 2;
-        }
+	}
 }
 
 

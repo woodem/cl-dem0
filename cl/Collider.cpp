@@ -228,7 +228,7 @@ void CpuCollider::initialSortGpu(){
 	}
 
     for (int ax:{0, 1, 2}){
-		boundBufs[ax] = cl::Buffer(*sim->context, CL_MEM_READ_WRITE,    powerOfTwo * sizeof (AxBound), NULL);
+		boundBufs[ax] = cl::Buffer(*sim->context, CL_MEM_READ_WRITE, powerOfTwo * sizeof (AxBound), NULL);
         bounds[ax].resize(powerOfTwo);
 		sim->queue->enqueueWriteBuffer(boundBufs[ax], CL_TRUE, 0, powerOfTwo * sizeof (AxBound), bounds[ax].data());
 	}
@@ -279,6 +279,11 @@ void CpuCollider::initialSortGpu(){
 	}
 	std::cout << "shrink buffer OK" << std::endl;
 
+	for(int i = 0;  i < 2*N; i++){
+		int tid = bounds[0][i].idMinThin >> 2;
+	//	std::cout << tid << ":" << bounds[0][i].coord << std::endl;
+	}
+
 	global_size = (trunc(trunc(sqrt(2*N)) / local_size) + 1) * local_size;
 	cl_int overAlocMem = 2*N;
 	cl_uint counter = 0;
@@ -288,15 +293,19 @@ void CpuCollider::initialSortGpu(){
 		cl::Buffer gOverlay(*sim->context, CL_MEM_WRITE_ONLY, overAlocMem * sizeof (cl_uint2), NULL);
 		cl::Buffer gCounter(*sim->context, CL_MEM_READ_WRITE, sizeof (cl_uint), NULL);
 		cl::Buffer gMemCheck(*sim->context, CL_MEM_READ_WRITE, sizeof (cl_uint), NULL);
-		cl::Buffer gBboxes(*sim->context, CL_MEM_READ_ONLY, 6 * N * sizeof (cl_float), NULL); 
+		cl::Buffer gBboxes(*sim->context, CL_MEM_READ_WRITE, 6 * N * sizeof (cl_float), NULL); 
+
+		vector<cl_float> test = sim->bboxes;
+
+		std::cout << "test: 0" << test[0] << std::endl;
 
 		sim->queue->enqueueWriteBuffer(gMemCheck, CL_TRUE, 0, sizeof (cl_uint), &memCheck);
 		sim->queue->enqueueWriteBuffer(gCounter, CL_TRUE, 0, sizeof (cl_uint), &counter);
-		std::cout << "A" << endl;
-		sim->queue->enqueueWriteBuffer(gBboxes, CL_TRUE, 0, 6 * N * sizeof (cl_float), sim->bboxes.data());
+		std::cout << "A N: " << N << "bboxes: " << sim->bboxes.size() << " 0: " << sim->bboxes[0] << endl;
+		sim->queue->enqueueWriteBuffer(gBboxes, CL_TRUE, 0, 6 * N * sizeof (float), sim->bboxes.data());
 		std::cout << "B" << endl;
 		cl::Kernel createOverlayKernel(*sim->program, "createOverlay");
-		std::cout << "B" << endl;
+		std::cout << "BB" << endl;
 		createOverlayKernel.setArg(0, boundBufs[0]);
 		std::cout << "C" << endl;
 		createOverlayKernel.setArg(1, gOverlay);
@@ -314,10 +323,12 @@ void CpuCollider::initialSortGpu(){
 		sim->queue->enqueueNDRangeKernel(createOverlayKernel, cl::NullRange, 
 				cl::NDRange(global_size, global_size),
 				cl::NDRange(local_size, local_size));
+
 		std::cout << "J" << endl;
 		sim->queue->enqueueReadBuffer(gMemCheck, CL_TRUE, 0, sizeof (cl_uint), &memCheck);
-		sim->queue->enqueueReadBuffer(gCounter, CL_TRUE, 0, sizeof (cl_uint), &counter);
 		std::cout << "K" << endl;
+		sim->queue->enqueueReadBuffer(gCounter, CL_TRUE, 0, sizeof (cl_uint), &counter);
+		std::cout << "L" << endl;
 		if (memCheck == 1) {
 			overAlocMem = counter + 1;
 			cerr << "Realokace pole na : " << overAlocMem << endl;
