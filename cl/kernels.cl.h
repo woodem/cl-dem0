@@ -761,6 +761,19 @@ void createOverlay (
 	}
 }
 
+kernel
+void test(
+	global int* data, 
+	const int count)
+{
+	long tId=getLinearWorkItem();
+	//printf("id: %d\n", tId);
+	if(tId > count){
+		return;
+	}
+	data[tId] = tId;
+	
+}
 
 #endif
 #endif

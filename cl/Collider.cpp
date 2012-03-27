@@ -215,6 +215,33 @@ void CpuCollider::initialStep(){
 void CpuCollider::initialSortGpu(){
 	cl_uint N=sim->par.size();
 
+#if 0
+	int test = 10000;
+	int *pole = new int[test];
+	cl::Buffer gTest(*sim->context, CL_MEM_READ_WRITE, test * sizeof (cl_int), NULL);
+
+	try {
+		cl::Kernel testKernel(*sim->program, "test");
+		testKernel.setArg(0, gTest);
+		testKernel.setArg(1, test);
+
+		sim->queue->enqueueNDRangeKernel(testKernel,cl::NDRange(),
+				makeLinear3DRange(test,sim->device),cl::NDRange());
+
+
+		sim->queue->enqueueReadBuffer(gTest, CL_TRUE, 0, test * sizeof (cl_int), pole);
+		for(int i = 0; i < test; i++){
+			if(pole[i] != i){
+				std::cout << "error : " << i << "test: " << pole[i] << std::endl;
+			}
+		}
+	} catch (cl::Error& e) {
+		std::cerr << "error " << e.what() << std::endl;
+	}
+#endif
+
+
+
 	std::cout << "GPU" << std::endl;
 	cl::Buffer boundBufs[3];
 
