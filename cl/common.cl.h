@@ -56,16 +56,12 @@
 		wis.resize(3); // in case it is greater than 3
 		size_t iMax=wis[0]*wis[1]*wis[2];
 		if(i>iMax) throw std::runtime_error("makeLinearNDRange: required number of items ("+lexical_cast<string>(i)+" is bigger than the device's maximum "+lexical_cast<string>(iMax)+" ("+lexical_cast<string>(wis[0])+"×"+lexical_cast<string>(wis[1])+"×"+lexical_cast<string>(wis[2])+")");
-		if(i<=wis[2]) {
-			std::cout << "NDRange: 1, 1, " << i << std::endl;
-			return cl::NDRange(1,1,i);
-		}
-		if(i<=wis[1]*wis[2]) {
-			std::cout << "NDRange: 1, " << i/wis[2]+1 << ", " << wis[2] << std::endl;
-			return cl::NDRange(1,i/wis[2]+1,wis[2]);
-		}
-		std::cout << "NDRange: " << i/(wis[1] * wis[2])+1 << ", " << wis[1] << ", " << wis[2] << std::endl;
-		return cl::NDRange(i/(wis[1]*wis[2])+1,wis[1],wis[2]);
+		cl::NDRange ret;
+		if(i<=wis[2]) ret=cl::NDRange(1,1,i);
+		else if(i<=wis[1]*wis[2]) ret=cl::NDRange(1,i/wis[2]+(i%wis[2]==0?0:1),wis[2]);
+		else cl::NDRange ret(i/(wis[1]*wis[2])+(i%(wis[1]*wis[2])==0?0:1),wis[1],wis[2]);
+		const size_t* rr(ret); std::cout<<"NDRange ("<<i<<"≤"<<rr[0]*rr[1]*rr[2]<<"): "<<rr[0]<<","<<rr[1]<<","<<rr[2]<<endl;
+		return ret;
 	}
 #endif
 #ifdef __OPENCL_VERSION__
