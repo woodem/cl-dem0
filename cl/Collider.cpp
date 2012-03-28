@@ -615,6 +615,8 @@ void CpuCollider::inversionsGpu(){
 				if(test == 1) std::cout << "R" << std::endl;
 				inversionKernel.setArg(5, count);
 				while (done == 1) {
+
+					std::cout << "VOL8M" << std::endl;
 					//compute odd
 					sim->queue->enqueueWriteBuffer(gDone, CL_TRUE, 0, sizeof (cl_uint), &zero);
 					if(test == 1)	std::cout << "S" << std::endl;
@@ -660,7 +662,7 @@ void CpuCollider::inversionsGpu(){
 						delPot(idFirst, idSecond, cl);
 					}
 					//add pot contact
-					if (idFirst < idSecond && !cl && bboxOverlap(minId, idSecond)) {
+					if (idFirst < idSecond && !cl && bboxOverlap(idFirst, idSecond)) {
 						if(Scene_particles_may_collide(scene,&(sim->par[idFirst]),
 							&(sim->par[idSecond]))) {
 							addPot(idFirst,idSecond,/*useFree*/true);
