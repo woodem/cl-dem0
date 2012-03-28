@@ -740,7 +740,7 @@ void createOverlay (
 	//	printf("minX: %d, maxX: %d, minY: %d, maxY: %d, minZ: %d, maxZ: %d\n", bboxes[idLeft * 6 + 0], bboxes[idLeft * 6 + 3], min1y, max1y, min1z, max1z);	
         //Z axis
         if ((maxAz > min1z) && (minAz < max1z)){
-            uint oldC = atom_inc(&counter[0]);
+            uint oldC = atom_inc(counter);
             if((oldC + 1) > alocMem){
 	//			printf("tu\n");
                 memCheck[0] = 1;
@@ -773,6 +773,99 @@ void test(
 	}
 	data[tId] = tId;
 	
+}
+
+kernel
+void computeNoOfInv (
+	global struct AxBound* data,
+	global uint* counter,
+	global uint* done,
+	const uint offset,
+	const uint count)
+{
+	uint threadId = getLinearWorkItem();
+	if (threadId > (count-1)) {
+		return;
+	}
+	
+	int leftId = (threadId * 2) + offset;
+	int rightId = leftId + 1;
+
+	if ((rightId > (count-1)) || (leftId > (count-1))){
+		return;
+	}
+	
+
+    struct AxBound leftItem = data[leftId];
+    struct AxBound rightItem = data[rightId];
+	//printf("LI: %f\n", leftItem.coord);
+    /*filtred only inverse max-min, min-max*/
+    if (leftItem.coord > rightItem.coord) {
+
+        if (((leftItem.id & 1) && (!(rightItem.id & 1))) || 
+           ((!(leftItem.id & 1)) && (rightItem.id & 1))){
+//	printf("new inversion");
+			atom_inc(counter);
+	//		printf("computeNoOfInv: %d\n", *counter);
+		}
+		data[leftId] = rightItem;
+		data[rightId] = leftItem;
+		(*done) = 1;
+    }
+}
+
+kernel
+void computeInv (
+	global struct AxBound* data,
+	global uint* counter,
+	global uint* done,
+	global uint2* inv,
+	const uint offset,
+	const uint count)
+{	
+	uint threadId = getLinearWorkItem();
+
+	if (threadId > (count-1)) {
+		return;
+	}
+	
+	int leftId = (threadId * 2) + offset;
+	int rightId = leftId + 1;
+
+	if ((rightId > (count-1)) || (leftId > (count-1))){
+		return;
+	}
+
+    struct AxBound leftItem = data[leftId];
+    struct AxBound rightItem = data[rightId];
+    
+	int oldC;
+
+	/*filtred only inverse max-min, min-max*/
+    if (leftItem.coord > rightItem.coord) {
+		uint lId = leftItem.id >> 2;
+		uint rId = rightItem.id >> 2;
+
+        if (((leftItem.id & 1) && (!(rightItem.id & 1))) || 
+           ((!(leftItem.id & 1)) && (rightItem.id & 1))){
+			oldC = atom_inc(counter);
+
+//			if(oldC == 0){
+			//	printf("old: %d, count: %d\n", oldC, *counter);
+	//		}
+
+			if(leftItem.id & 1){
+				inv[oldC].lo = max(lId, rId);
+				inv[oldC].hi = min(lId, rId);
+			} else {
+				inv[oldC].lo = min(lId, rId);
+				inv[oldC].hi = max(lId, rId);
+			}
+		}
+		data[leftId] = rightItem;
+		data[rightId] = leftItem;
+		(*done) = 1;
+    }
 }
 
 #endif

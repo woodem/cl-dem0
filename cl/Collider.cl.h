@@ -108,6 +108,7 @@ namespace clDem{
 		void checkConsistency();
 		void updateBounds();
 		void insertionSort();
+		void inversionsGpu();
 	};
 };
 

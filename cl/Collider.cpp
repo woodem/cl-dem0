@@ -33,8 +33,10 @@ void CpuCollider::remove(par_id_t id1, par_id_t id2){
 };
 
 bool CpuCollider::bboxOverlap(par_id_t id1, par_id_t id2) const {
-	assert(id1>=0 && (6*id1+5)<sim->bboxes.size());
-	assert(id2>=0 && (6*id2+5)<sim->bboxes.size());
+	assert(id1>=0);
+	assert((6*id1+5)<sim->bboxes.size());
+	assert(id2>=0);
+	assert((6*id2+5)<sim->bboxes.size());
 	return
 		sim->bboxes[6*id1+0]<=sim->bboxes[6*id2+3] && sim->bboxes[6*id2+0]<=sim->bboxes[6*id1+3] &&
 		sim->bboxes[6*id1+1]<=sim->bboxes[6*id2+4] && sim->bboxes[6*id2+1]<=sim->bboxes[6*id1+4] &&
@@ -304,12 +306,6 @@ void CpuCollider::initialSortGpu(){
 		sim->queue->enqueueWriteBuffer(boundBufs[ax], CL_TRUE, 0, 2*N*sizeof (AxBound), bounds[ax].data());
 	}
 	std::cout << "shrink buffer OK" << std::endl;
-
-	for(int i = 0;  i < 2*N; i++){
-		int tid = bounds[0][i].idMinThin >> 2;
-	//	std::cout << tid << ":" << bounds[0][i].coord << std::endl;
-	}
-
 	global_size = (trunc(trunc(sqrt(2*N)) / local_size) + 1) * local_size;
 	cl_int overAlocMem = 2*N;
 	cl_uint counter = 0;
@@ -400,6 +396,7 @@ void CpuCollider::initialSortGpu(){
 		}
 	} catch (cl::Error& e) {
 		cerr << "err: " << e.err() << "what: " << e.what() << endl;
+		throw;
 	}
 	std::cout << "GPU code is OK" << std::endl;
 }
@@ -411,7 +408,11 @@ void CpuCollider::incrementalStep(){
 	replayJournal();
 	checkConsistency();
 	updateBounds();
-	insertionSort();
+	if (useGpu){
+		inversionsGpu();
+	} else {
+		insertionSort();
+	}
 	compactFree();
 }
 
@@ -533,6 +534,144 @@ void CpuCollider::updateBounds(){
 			ab.coord=sim->bboxes[6*ab.getId()+ax+(ab.isMin()?0:3)];
 			//ab.isThin=(sim->bboxes[6*ab.id+ax]==sim->bboxes[6*ab.id+ax+3]); // this is perhaps not needed anymore
 		}
+	}
+}
+
+void CpuCollider::inversionsGpu(){
+	uint test = 0;
+	std::cout << "inversion on GPU" << std::endl;
+	for (int ax:{0, 1, 2}){
+		//variables
+		cl_uint count = bounds[ax].size();
+		cl_uint counter = 0;
+		cl_uint done = 1;
+		cl_uint zero = 0;
+		//Create Buffer
+		cl::Buffer gBounds(*sim->context, CL_MEM_READ_WRITE, count * sizeof (AxBound), NULL);
+		cl::Buffer gCounter(*sim->context, CL_MEM_READ_WRITE, sizeof (cl_uint), NULL);
+		cl::Buffer gDone(*sim->context, CL_MEM_READ_WRITE, sizeof (cl_uint), NULL);
+		//Write buffer
+		sim->queue->enqueueWriteBuffer(gBounds, CL_TRUE, 0, count * sizeof (AxBound), bounds[ax].data());
+		sim->queue->enqueueWriteBuffer(gCounter, CL_TRUE, 0, sizeof (cl_uint), &counter);
+		sim->queue->enqueueWriteBuffer(gDone, CL_TRUE, 0, sizeof (cl_uint), &zero);
+		//compute kernel`s
+		try {
+			if(test == 1) std::cout << "A" << std::endl;
+			//compute NoOfInversion
+			cl::Kernel NoOfInversionsKernel(*sim->program, "computeNoOfInv");
+			if(test == 1) std::cout << "B" << std::endl;
+			NoOfInversionsKernel.setArg(0, gBounds);
+			if(test == 1) std::cout << "C" << std::endl;
+			NoOfInversionsKernel.setArg(1, gCounter);
+			if(test == 1) std::cout << "D" << std::endl;
+			NoOfInversionsKernel.setArg(4, count);
+			while(done == 1) {
+				sim->queue->enqueueWriteBuffer(gDone, CL_TRUE, 0, sizeof (cl_uint), &zero);
+				//compute odd 
+				if(test == 1) std::cout << "E" << std::endl;
+				NoOfInversionsKernel.setArg(2, gDone);
+				NoOfInversionsKernel.setArg(3, 0);
+				if(test == 1) std::cout << "F" << std::endl;
+				sim->queue->enqueueNDRangeKernel(NoOfInversionsKernel, cl::NDRange(),
+					makeLinear3DRange(count, sim->device), cl::NDRange());
+				if(test == 1) std::cout << "G" << std::endl;
+				sim->queue->enqueueReadBuffer(gDone, CL_TRUE, 0, sizeof (cl_uint), &done);
+
+				//compute even				
+				NoOfInversionsKernel.setArg(3, 1);
+				if(test == 1) std::cout << "H" << std::endl;
+				sim->queue->enqueueNDRangeKernel(NoOfInversionsKernel, cl::NDRange(),
+					makeLinear3DRange(count, sim->device), cl::NDRange());
+				if(test == 1) std::cout << "I" << std::endl;
+				sim->queue->enqueueReadBuffer(gDone, CL_TRUE, 0, sizeof (cl_uint), &done);
+				sim->queue->finish();
+			}
+			//test print
+			if(test == 1) std::cout << "J" << std::endl;
+			sim->queue->enqueueReadBuffer(gCounter, CL_TRUE, 0, sizeof (cl_uint), &counter);	
+			std::cout << "NoOfInversion: " << counter << std::endl;
+			//end test
+			//compute inversion
+			if (counter != 0) {
+				if(test == 1) std::cout << "K" << std::endl;
+				cl::Kernel inversionKernel(*sim->program, "computeInv");
+				if(test == 1) std::cout << "L" << std::endl;
+				cl::Buffer inversions(*sim->context, CL_MEM_WRITE_ONLY, counter * sizeof(cl_uint2), NULL);
+				//init
+				done = 1;
+				counter = 0;
+				if(test == 1) std::cout << "M" << std::endl;
+				sim->queue->enqueueWriteBuffer(gBounds, CL_TRUE, 0, count * sizeof (AxBound), bounds[ax].data());
+				if(test == 1) std::cout << "N" << std::endl;
+				sim->queue->enqueueWriteBuffer(gCounter, CL_TRUE, 0, sizeof (cl_uint), &zero);
+				if(test == 1) std::cout << "O" << std::endl;
+				sim->queue->enqueueWriteBuffer(gDone, CL_TRUE, 0, sizeof (cl_uint), &zero);
+				if(test == 1) std::cout << "P" << std::endl;
+				inversionKernel.setArg(0, gBounds);
+				if(test == 1) std::cout << "Q" << std::endl;
+				inversionKernel.setArg(1, gCounter);
+				if(test == 1) std::cout << "Q.1" << std::endl;
+				inversionKernel.setArg(3, inversions);
+				if(test == 1) std::cout << "R" << std::endl;
+				inversionKernel.setArg(5, count);
+				while (done == 1) {
+					//compute odd
+					sim->queue->enqueueWriteBuffer(gDone, CL_TRUE, 0, sizeof (cl_uint), &zero);
+					if(test == 1)	std::cout << "S" << std::endl;
+					inversionKernel.setArg(2, gDone);
+					if(test == 1) std::cout << "T" << std::endl;
+					inversionKernel.setArg(4, 0);
+					if(test == 1) std::cout << "U" << std::endl;
+					sim->queue->enqueueNDRangeKernel(inversionKernel, cl::NDRange(),
+					makeLinear3DRange(count, sim->device), cl::NDRange());
+					if(test == 1) std::cout << "V" << std::endl;
+					sim->queue->enqueueReadBuffer(gDone, CL_TRUE, 0, sizeof (cl_uint), &done);
+
+					//compute even				
+					if(test == 1) std::cout << "W" << std::endl;
+					inversionKernel.setArg(4, 1);
+					if(test == 1) std::cout << "X" << std::endl;
+					sim->queue->enqueueNDRangeKernel(inversionKernel, cl::NDRange(),
+					makeLinear3DRange(count, sim->device), cl::NDRange());
+					if(test == 1) std::cout << "Y" << std::endl;
+					sim->queue->enqueueReadBuffer(gDone, CL_TRUE, 0, sizeof (cl_uint), &done);
+					sim->queue->finish();
+				}
+				std::cout << "inversion done" << std::endl;
+				if(test == 1) std::cout << "Z" << std::endl;
+				sim->queue->enqueueReadBuffer(gCounter, CL_TRUE, 0, sizeof (cl_uint), &counter);	
+				vector<cl_uint2> inv;
+				inv.resize(counter);
+
+				std::cout << "compute contact" << std::endl;
+				sim->queue->enqueueReadBuffer(inversions, CL_TRUE, 0, sizeof (cl_uint2), inv.data());
+				
+				for (int i = 0; i < counter; i++) {
+					uint idFirst = inv[i].lo;	
+					uint idSecond = inv[i].hi;
+					if (inv[i].lo > sim->bboxes.size() || inv[i].hi > sim->bboxes.size()){
+						std::cout << "pozice: " << i << " max: " << counter << std::endl; 
+						std::cout << "lo: " << inv[i].lo << "hi: " << inv[i].hi << std::endl;
+					}
+					ConLoc* cl = find(idFirst, idSecond);
+					//dell pot contact
+					if (idFirst > idSecond && cl && !cl->isReal) {
+						assert(!bboxOverlap(idFirst, idSecond));
+						delPot(idFirst, idSecond, cl);
+					}
+					//add pot contact
+					if (idFirst < idSecond && !cl && bboxOverlap(minId, idSecond)) {
+						if(Scene_particles_may_collide(scene,&(sim->par[idFirst]),
+							&(sim->par[idSecond]))) {
+							addPot(idFirst,idSecond,/*useFree*/true);
+						}
+					}
+				}
+			}
+		} catch (cl::Error& e){
+			std::cerr << "Error: " << e.what() << std::endl;
+			throw;
+		}	
 	}
 }
 

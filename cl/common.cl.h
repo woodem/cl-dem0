@@ -62,6 +62,9 @@
 		else cl::NDRange ret(i/(wis[1]*wis[2])+(i%(wis[1]*wis[2])==0?0:1),wis[1],wis[2]);
 		const size_t* rr(ret); std::cout<<"NDRange ("<<i<<"≤"<<rr[0]*rr[1]*rr[2]<<"): "<<rr[0]<<","<<rr[1]<<","<<rr[2]<<endl;
 		return ret;
+
+
+
 	}
 #endif
 #ifdef __OPENCL_VERSION__
