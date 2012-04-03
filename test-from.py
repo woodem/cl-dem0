@@ -23,9 +23,12 @@ O.scene.engines=[
 import yade.qt
 yade.qt.View()
 
-
-
+O.scene.clDev=(1,0) # intel
 sim=yade.cld.CLDemField.yadeToClDem(O.scene,stepPeriod=1)
+
+#from yade import plot
+#plot.plots=
+
 O.saveTmp()
 
 

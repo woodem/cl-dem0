@@ -9,9 +9,9 @@ import pylab, itertools, random
 
 from yade import *
 
-dim=80,80,24
-genDim=8,8,8 # dim will be made by generating genDim and copying
-margin=3
+dim=8,8,8
+genDim=4,4,4 # dim will be made by generating genDim and copying
+margin=0
 r=.01
 ktDivKn=.2
 
@@ -25,7 +25,7 @@ sim.scene.dt=-.4
 sim.maxScheduledSteps=10
 
 if 1:
-	sim.par.append(clDem.mkWall(pos=(0,0,2*r),axis=2,sim=sim,matId=0,groups=0b011))
+	sim.par.append(clDem.mkWall(pos=(0,0,0),axis=2,sim=sim,matId=0,groups=0b011))
 	sim.par.append(clDem.mkWall(pos=(0,0,0),axis=0,sim=sim,matId=0,groups=0b011))
 	sim.par.append(clDem.mkWall(pos=(0,0,0),axis=1,sim=sim,matId=0,groups=0b011))
 else:
@@ -35,12 +35,12 @@ else:
 
 # walls/ground spheres are in loneGroups, but collide with spheres below (0b001) as well
 sim.scene.loneGroups=0b010
-sim.collideGpu = True
+#sim.collideGpu = True
 
 import yade.pack
 sp=yade.pack.SpherePack()
 sp.makeCloud((0,0,0),2*r*Vector3(genDim),r,rRelFuzz=.5,periodic=True)
-sp.translate((2*r*margin)*Vector3.Ones)
+sp.translate(2*r*Vector3.Ones)
 sp.cellRepeat([(dim[i]-2*margin)/genDim[i] for i in (0,1,2)])
 for center,radius in sp:
 	sim.par.append(clDem.mkSphere(center,radius,sim,matId=0,groups=0b001,fixed=False))
@@ -52,7 +52,7 @@ import yade.cld
 import yade.log
 import yade.gl
 from yade import timing
-if 1: # run on both
+if 0: # run on both
 	O.scene=yade.cld.CLDemField.clDemToYade(sim,stepPeriod=20,relTol=-1e-5)
 	#O.timingEnabled=True
 	# remove last engine and the clDem field
