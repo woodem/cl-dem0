@@ -52,8 +52,8 @@ import yade.cld
 import yade.log
 import yade.gl
 from yade import timing
-if 0: # run on both
-	O.scene=yade.cld.CLDemRun.clDemToYade(sim,stepPeriod=20,relTol=-1e-5)
+if 1: # run on both
+	O.scene=yade.cld.CLDemField.clDemToYade(sim,stepPeriod=20,relTol=-1e-5)
 	#O.timingEnabled=True
 	# remove last engine and the clDem field
 	#O.scene.engines=O.scene.engines[0:-1]
