@@ -221,7 +221,7 @@ namespace clDem{
 			VECTOR_SEQ_CONV(ClumpMember);
 
 			py::class_<Particle>("Particle")//.def("__init__",py::make_constructor(Particle_new))
-				.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RWV(Particle,angMom).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,force).PY_RWV(Particle,torque).PY_RWV(Particle,bboxPos)
+				.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RWV(Particle,angMom).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,angVel).PY_RWV(Particle,force).PY_RWV(Particle,torque).PY_RWV(Particle,bboxPos)
 				.add_property("shape",Particle_shape_get,Particle_shape_set)
 				// flags
 				.def_readonly("flags",&Particle::flags)

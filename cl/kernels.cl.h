@@ -154,7 +154,7 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	}
 
 	if((dofs&par_dofs_rot)==par_dofs_rot){
-		if(useAspherical){
+		if(!useAspherical){
 			angAccel+=pp.torque/pp.inertia.x;
 		} else {
 			// aspherical particles
