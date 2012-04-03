@@ -98,6 +98,7 @@ namespace clDem{
 		py::tuple getBbox(par_id_t id);
 		py::list saveVtk(string prefix, bool compress=true, bool ascii=false);
 		py::tuple addClump(const vector<Particle>&);
+		par_id_t makeClumped(const vector<par_id_t>&);
 
 		Matrix3r inertiaTranslate(const Matrix3r& I, const Real m, const Vector3r& off){
 			return I+m*(off.dot(off)*Matrix3r::Identity()-off*off.transpose());

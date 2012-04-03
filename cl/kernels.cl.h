@@ -144,6 +144,7 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 	bool useAspherical=(pp.inertia.x!=pp.inertia.y || pp.inertia.y!=pp.inertia.z);
 
 	if((dofs&par_dofs_trans)==par_dofs_trans){ // all translations possible, use vector expr
+		CL_ASSERT(pp.mass>0);
 		accel+=pp.force/pp.mass;
 	} else {
 		for(int ax=0; ax<3; ax++){
@@ -178,7 +179,7 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 		}
 	}
 	#ifdef DUMP_INTEGRATOR
-		if(dofs!=0) printf("$%ld/%d: v=%.17v3g, ω=%.17v3g, L=%.17v3g, F=%.17v3g, T=%.17v3g, a=%.17v3g",scene->step,get_global_id(0),pp.vel,pp.angVel,pp.angMom,pp.force,pp.torque,accel);
+		if(dofs!=0) printf("$%ld/%d: v=%.17v3g, ω=%.17v3g, L=%.17v3g, F=%.17v3g, T=%.17v3g, a=%.17v3g",scene->step,pid,pp.vel,pp.angVel,pp.angMom,pp.force,pp.torque,accel);
 	#endif
 	if(damping!=0){
 		ADD_ENERGY(scene,damp,(dot(fabs(pp.vel),fabs(pp.force))+dot(fabs(pp.angVel),fabs(pp.torque)))*damping*dt);
@@ -187,10 +188,11 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 		else angAccel=angAccel*(1-damping*sign(pp.torque*pp.angVel));
 	}
 
+	/* only add energy if at least some dofs are free */
 	// this estimates velocity at next on-step using current accel; it follows how yade computes it currently
-	ADD_ENERGY(scene,Ekt,.5*pp.mass*Vec3_sqNorm(pp.vel+.5*dt*accel));
+	if(dofs&par_dofs_trans) ADD_ENERGY(scene,Ekt,.5*pp.mass*Vec3_sqNorm(pp.vel+.5*dt*accel));
 	// valid only for spherical particles (fix later)
-	ADD_ENERGY(scene,Ekr,.5*dot(pp.inertia*(pp.angVel+.5*dt*angAccel),pp.angVel+.5*dt*angAccel));
+	if(dofs&par_dofs_rot)   ADD_ENERGY(scene,Ekr,.5*dot(pp.inertia*(pp.angVel+.5*dt*angAccel),pp.angVel+.5*dt*angAccel));
 
 	pp.vel+=accel*dt;
 	pp.angVel+=angAccel*dt;
@@ -206,7 +208,10 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 		// force and torque are reset here as well
 		Clump_applyToMembers(&pp,clumps,par,&(scene->updateBboxes),verletDist);
 	} else {
-		if(!isnan(verletDist) && ((Vec3_sqNorm(pp.pos-pp.bboxPos)>pown(verletDist,2) || isnan(pp.bboxPos.s0)))) scene->updateBboxes=true;
+		if(!isnan(verletDist) && ((Vec3_sqNorm(pp.pos-pp.bboxPos)>pown(verletDist,2) || isnan(pp.bboxPos.s0)))){
+			scene->updateBboxes=true;
+			//printf("Update bboxes because of #%d",pid);
+		}
 	}
 
 	/* write back */

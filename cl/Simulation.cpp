@@ -453,12 +453,24 @@ py::tuple Simulation::getBbox(par_id_t id){
 
 py::tuple Simulation::addClump(const vector<Particle>& pp){
 	if(pp.empty()) throw std::runtime_error("Creating clump with zero particles");
-	py::list memberIds;
+	vector<par_id_t> memberIds;
+	py::list memberIdsPy;
+	for(const Particle& p: pp){
+		par.push_back(p);
+		memberIds.push_back(par.size()-1);
+		memberIdsPy.append(par.size()-1);
+	}
+	return py::make_tuple(makeClumped(memberIds),memberIdsPy);
+}
+
+par_id_t Simulation::makeClumped(const vector<par_id_t>& memberIds){
+	if(memberIds.empty()) throw std::runtime_error("Creating clump with zero particles");
 	// mass, static momentum, inertia
 	Real M=0.;
 	Vector3r Sg=Vector3r::Zero();
 	Matrix3r Ig=Matrix3r::Zero();
-	for(const Particle& p: pp){
+	for(const par_id_t& id: memberIds){
+		const Particle& p(par[id]);
 		if(par_clumped_get(&p)) throw std::runtime_error("Particle is part of a clump already.");
 		if(par_shapeT_get(&p)==Shape_Clump) throw std::runtime_error("Particle being clumped is itself a clump (not allowed).");
 		Vector3r pos(toEigen(p.pos));
@@ -491,16 +503,14 @@ py::tuple Simulation::addClump(const vector<Particle>& pp){
 	clump.shape.clump=Clump();
 	clump.shape.clump.ix=clumps.size(); // start at the end of the current clump array
 
-	par_id_t clumpId=par.size()+pp.size();
+	par_id_t clumpId=par.size();
  
-	for(const Particle& p: pp){
-		par.push_back(p);   // insert particle into par
-		Particle& p2(*par.rbegin());
-		par_clumped_set(&p2,true);
-		p2.clumpId=clumpId;
+	for(const par_id_t& id: memberIds){
+		Particle& p(par[id]);
+		par_clumped_set(&p,true);
+		p.clumpId=clumpId;
 		ClumpMember cm;
-		cm.id=par.size()-1; // last index in par is the inserted particle
-		memberIds.append(cm.id);
+		cm.id=id; // last index in par is the inserted particle
 		cm.relPos=fromEigen(cOri.conjugate()*(toEigen(p.pos)-cPos));
 		cm.relOri=fromEigen(cOri.conjugate()*toEigen(p.ori));
 		Eigen::AngleAxis<Real> aa(toEigen(cm.relOri));
@@ -511,9 +521,9 @@ py::tuple Simulation::addClump(const vector<Particle>& pp){
 
 	// add the clump itself
 	par.push_back(clump);
-	// did we get it false??
+	// did we get it right?
 	assert(par.size()-1==clumpId);
 
-	return py::make_tuple(par.size()-1,memberIds);
+	return clumpId;
 }
 
