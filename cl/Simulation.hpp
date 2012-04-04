@@ -50,11 +50,7 @@ namespace clDem{
 
 		Simulation(int pNum=-1,int dNum=-1, bool _trackEnergy=false, Real _ktDivKn=NAN, bool _breakTension=false, Real _charLen=NAN, bool _collideGpu=false, const string& _opts=""): trackEnergy(_trackEnergy), ktDivKn(_ktDivKn), breakTension(_breakTension), charLen(_charLen), collideGpu(_collideGpu), extraOpts(_opts), maxScheduledSteps(-1) {}
 
-		void save(const string& s){
-			// sync collider with the buffers before saving
-			if(cpuCollider) cpuCollider->run(this);
-			ObjectIO::save(s,"cldem",*this);
-		}
+		void save(const string& s){ ObjectIO::save(s,"cldem",*this); }
 		void load(const string& s){ ObjectIO::load(s,"cldem",*this); }
 
 		shared_ptr<cl::Platform> platform;
@@ -133,6 +129,7 @@ void Simulation_hpp_expose(){
 		.def_readonly("breakTension",&Simulation::breakTension)
 		.def_readonly("charLen",&Simulation::charLen)
 		.def_readwrite("collideGpu",&Simulation::collideGpu)
+		.def_readonly("cpuCollider",&Simulation::cpuCollider)
 		.def("run",&Simulation::run,(py::arg("nSteps"),py::arg("resetArrays")=true))
 		#ifdef CLDEM_VTK
 		.def("saveVtk",&Simulation::saveVtk,(py::arg("prefix"),py::arg("compress")=true,py::arg("ascii")=false))

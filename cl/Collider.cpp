@@ -136,6 +136,7 @@ void CpuCollider::run(Simulation* _sim){
 	scene=&sim->scene;
 	bool init=false; // run the initial (full) contact detection, or only the incremental one?
 	if(bounds[0].size()!=sim->par.size()*2) init=true;
+	if(init && sim->scene.step>=0) cerr<<"WARN: Initial sort for collider at step "<<sim->scene.step<<": bounds[0].size()="<<bounds[0].size()<<", sim->par.size()*2="<<sim->par.size()*2<<endl;
 	if(init) initialStep();
 	else incrementalStep();
 };

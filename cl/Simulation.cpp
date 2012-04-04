@@ -114,8 +114,6 @@ namespace clDem{
 	}
 
 	void Simulation::initCl(){
-		cpuCollider=make_shared<CpuCollider>();
-
 		// if there is no queue, create it
 		// note that context can be set externally (from yade after loading, for instance)
 		if(!queue){
@@ -178,7 +176,8 @@ namespace clDem{
 	void Simulation::run(int _nSteps){
 		// OpenCL was not initialized yet, do it here
 		if(!program) initCl();
-		
+
+		if(!cpuCollider) cpuCollider=make_shared<CpuCollider>();
 		cpuCollider->useGpu=collideGpu;
 
 		/* if verletDist is negative, it is a fraction of the smallest spherical particle */

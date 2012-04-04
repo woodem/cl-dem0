@@ -15,7 +15,7 @@ margin=0
 r=.01
 ktDivKn=.2
 
-sim=clDem.Simulation(breakTension=True,ktDivKn=ktDivKn)
+sim=clDem.Simulation(breakTension=True,ktDivKn=ktDivKn,opts="-cl-strict-aliasing ")
 
 sim.scene.materials=[clDem.FrictMat(young=1e6,density=1e3,ktDivKn=.2,tanPhi=.5)]
 sim.scene.gravity=(-4,-5,-10)
@@ -52,7 +52,7 @@ import yade.cld
 import yade.log
 import yade.gl
 from yade import timing
-if 0: # run on both
+if 1: # run on both
 	O.scene=yade.cld.CLDemField.clDemToYade(sim,stepPeriod=20,relTol=-1e-5)
 	#O.timingEnabled=True
 	# remove last engine and the clDem field

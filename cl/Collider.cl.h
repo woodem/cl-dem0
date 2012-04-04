@@ -75,12 +75,14 @@ namespace clDem{
 			bool isThin() const{ return idMinThin&2; }
 			par_id_t getId() const { return idMinThin>>2; }
 			CLDEM_SERIALIZE_ATTRS((idMinThin)(coord),);
+			string __str__() const{ return string(isMin()?"|":"<")+lexical_cast<string>(getId())+" @ "+lexical_cast<string>(coord)+(isThin()?" [thin] ":"")+(isMin()?">":"|"); }
 		};
 		std::vector<AxBound> bounds[3];
+		py::tuple getBounds(){ return py::make_tuple(bounds[0],bounds[1],bounds[2]); }
 
 		bool useGpu;
 
-		CLDEM_SERIALIZE_ATTRS((cMap)(bounds)(useGpu),/**/);
+		CLDEM_SERIALIZE_ATTRS((cMap)(bounds)(useGpu),cerr<<"bounds[0].size()="<<bounds[0].size()<<endl;/**/);
 
 		void add(par_id_t id1, par_id_t id2, const ConLoc&);
 		void remove(par_id_t id1, par_id_t id2);
@@ -113,13 +115,16 @@ namespace clDem{
 };
 
 static void Collider_cl_h_expose(){
+	py::class_<clDem::CpuCollider,shared_ptr<clDem::CpuCollider>>("CpuCollider",py::no_init).def_readonly("bounds",&clDem::CpuCollider::getBounds);
+
 	VECTOR_SEQ_CONV(CJournalItem);
 	py::class_<CJournalItem>("CJournalItem")
 		.def("__str__",&CJournalItem::__str__)
 		.def("__repr__",&CJournalItem::__str__)
 	;
+	VECTOR_SEQ_CONV(CpuCollider::AxBound);
+	py::class_<CpuCollider::AxBound>("AxBound").def("__str__",&CpuCollider::AxBound::__str__).def("__repr__",&CpuCollider::AxBound::__str__);
 	//PY_RW(CJournalItem,what).PY_RW(CJournalItem,index).PY_RW(CJournalItem,index).PY
-
 };
 
 #endif
