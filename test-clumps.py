@@ -34,7 +34,7 @@ sim.par.append(clDem.mkWall(pos=(0,0,-1.3),axis=2,sim=sim,matId=0,groups=0b011))
 #O.scene.fields=[yade.cld.CLDemField(sim)]
 #O.scene.engines=[yade.cld.CLDemRun(stepPeriod=1),]
 
-O.scene=yade.cld.CLDemRun.clDemToYade(sim,stepPeriod=1,relTol=-1e-5)
+O.scene=yade.cld.CLDemField.clDemToYade(sim,stepPeriod=1,relTol=-1e-5)
 #print O.scene.engines[-1].raiseLimit
 #O.scene.engines[-1].raiseLimit=1e11
 #O.scene.engines=O.scene.engines+[yade.core.PyRunner('import yade; sim=yade.O.scene.fields[-1].sim; print yade.O.dem.par[1].pos,sim.par[1].pos')]

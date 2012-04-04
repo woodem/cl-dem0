@@ -402,8 +402,6 @@ void CpuCollider::initialSortGpu(){
 }
 
 
-
-
 void CpuCollider::incrementalStep(){
 	replayJournal();
 	checkConsistency();
