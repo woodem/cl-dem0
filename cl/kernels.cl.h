@@ -41,7 +41,7 @@ CLDEM_NAMESPACE_END()
 
 
 // all kernels take the same set of arguments, for simplicity in the host code
-#define KERNEL_ARGUMENT_LIST global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int *conFree, global long2* pot, global int *potFree, global struct CJournalItem* cJournal, global struct ClumpMember* clumps, global float* bboxes
+#define KERNEL_ARGUMENT_LIST1 global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int* conFree, global long2* pot, global int *potFree, global struct CJournalItem* cJournal, global struct ClumpMember* clumps, global float* bboxes, const int countPar, const int countCon, const int countPot, const Real sceneDt
 
 #ifdef cl_amd_printf
 	#define PRINT_TRACE(name)
@@ -88,7 +88,7 @@ void Scene_energyZeroNonincremental(global struct Scene* scene){
 /**** kernel code, will be in separate files ****/
 
 
-kernel void nextTimestep_1(KERNEL_ARGUMENT_LIST){
+kernel void nextTimestep_1(KERNEL_ARGUMENT_LIST1){
 	const int substep=SUB_nextTimestep;
 	scene->step++;
 	//PRINT_TRACE("** nextTimestep_1");
@@ -97,7 +97,7 @@ kernel void nextTimestep_1(KERNEL_ARGUMENT_LIST){
 
 	// if step is -1, we are at the very beginning
 	// keep time at 0, only increase step number
-	if(scene->step>0) scene->t+=scene->dt;
+	if(scene->step>0) scene->t+=sceneDt;
 
 	scene->updateBboxes=false;
 
@@ -106,19 +106,19 @@ kernel void nextTimestep_1(KERNEL_ARGUMENT_LIST){
 	#endif
 }
 
-kernel void integrator_P(KERNEL_ARGUMENT_LIST){
+kernel void integrator_P(KERNEL_ARGUMENT_LIST1){
 	const int substep=SUB_integrator;
 	if(Scene_skipKernel(scene,substep)) return;
 	PRINT_TRACE("integrator_P");
 
 	size_t pid=getLinearWorkItem();
-	if(pid>=scene->arrSize[ARR_PAR]) return;
+	if(pid>=countPar) return;
 
 	global struct Particle *p=&(par[pid]);
 	if(par_clumped_get_global(p))	return; // clumped particles are handled by the clump itself
 
 	struct Particle pp=*p;
-	Real dt=scene->dt;
+	Real dt=sceneDt;
 	Vec3 gravity=scene->gravity;
 	Real damping=scene->damping;
 	Real verletDist=scene->verletDist;
@@ -226,15 +226,15 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST){
 }
 
 /** This kernel runs only when INT_OUT_OF_BBOX is set **/
-kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
+kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST1){
 	const int substep=SUB_updateBboxes;
 	if(!scene->updateBboxes) return;
 	if(Scene_skipKernel(scene,substep)) return;
 	PRINT_TRACE("updateBboxes_P");
 
 	// not immediate since all threads must finish
-	par_id_t id=getLinearWorkItem();
-	if(id>=scene->arrSize[ARR_PAR]) return;
+	size_t id=getLinearWorkItem();
+	if(id>=countPar) return;
 	if(id==0) Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE | INT_NOT_DESTRUCTIVE | INT_BBOXES);
 
 	global struct Particle *p=&par[id];
@@ -267,25 +267,34 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST){
 	//printf("%ld: %v3g±(%g+%g) %v3g %v3g\n",id,p->pos,scene->verletDist,p->shape.sphere.radius,mn,mx);
 }
 
-kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
-	const int substep=SUB_checkPotCon;
+kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
+	//struct Scene loclaScene = &scene;
+	const int substep = SUB_checkPotCon;
+	// (?) only read from scene
 	if(Scene_skipKernel(scene,substep)) return;
-	size_t cid=getLinearWorkItem();
-	if(cid>=scene->arrSize[ARR_POT]) return; // in case we are past real number of contacts
-	par_id2_t ids=pot[cid];
-	if(ids.s0<0 || ids.s1<0) return; // deleted contact
+	size_t cid = getLinearWorkItem();
+	// in case we are past real number of contacts
+	if(cid >= countPot) return;
+	par_id2_t ids = pot[cid];
+	if(ids.s0 < 0 || ids.s1 < 0) return; // deleted contact
 	PRINT_TRACE("checkPotCon_PC");
 	
-	// always make contacts such that shape index of the first particle <= shape index of the second particle
-	int flip=par_shapeT_get_global(&par[ids.s0])>par_shapeT_get_global(&par[ids.s1]);
-	if(flip) ids=(par_id2_t)(ids.s1,ids.s0);
+	// always make contacts such that shape index of the first particle
+	// <= shape index of the second particle
+	int flip = par_shapeT_get_global(&par[ids.s0]) > par_shapeT_get_global(&par[ids.s1]);
+	//int flip = par_shapeT_get_global(p1) > par_shapeT_get_global(p2);
+	if(flip) {
+		ids = (par_id2_t)(ids.s1,ids.s0);
+	}
+	/*1*/
+	struct Particle p1=par[ids.s0];
+	struct Particle p2=par[ids.s1];
+	/*_1*/
 
-	const struct Particle p1=par[ids.s0];
-	const struct Particle p2=par[ids.s1];
 	switch(SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2))){
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
 			Real r1=p1.shape.sphere.radius, r2=p2.shape.sphere.radius;
-			if(distance(p1.pos,p2.pos)>=r1+r2){
+			if(distance(p1.pos,p2.pos) >= r1+r2){
 				// printf("pot ##%d+%d: distance %g.\n",(int)ids.s0,(int)ids.s1,distance(p1->pos,p2->pos)-(r1+r2));
 				return;
 			}
@@ -314,29 +323,44 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST){
 
 	// add to potFree
 	// not immediate, since other work-items might increase the required capacity yet more
-	if(ixPotFree<0){
-		//printf("!! potfree insufficient, size=%d, alloc=%d\n",scene->arrSize[ARR_POTFREE],scene->arrAlloc[ARR_POTFREE]);
-		Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return;
+	if(ixPotFree < 0) {
+		/* printf("!! potfree insufficient, size=%d, alloc=%d\n",
+		 * scene->arrSize[ARR_POTFREE],scene->arrAlloc[ARR_POTFREE]);*/
+		Scene_interrupt_set(scene,substep, INT_NOT_IMMEDIATE | INT_DESTRUCTIVE | INT_ARRAYS);
+		return;
 	}
 	potFree[ixPotFree]=cid;
 	
 	// add to con
-	if(ixCon<0){ Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
+	if(ixCon < 0) {
+		Scene_interrupt_set(scene, substep, INT_NOT_IMMEDIATE | INT_DESTRUCTIVE | INT_ARRAYS);
+		return;
+	}
 	// actually create the new contact here
 	#if 1
 		// debugging only (the race conditions is fixed now, so it should not happen anymore)
-		if(con[ixCon].ids.s0>0){ printf("ERROR: con[%d] reported as free, but contains ##%ld+%ld\n",ixCon,con[ixCon].ids.s0,con[ixCon].ids.s1); }
+		if(con[ixCon].ids.s0 > 0) {
+			printf("ERROR: con[%d] reported as free, but contains ##%ld+%ld\n", 
+				ixCon, con[ixCon].ids.s0, con[ixCon].ids.s1);
+		}
 	#endif
 	// this is perhaps too expensive?
-	struct Contact c; Contact_init(&c);
+	struct Contact c;
+	Contact_init(&c);
 	con[ixCon]=c;
 	con[ixCon].ids=ids;
 
 	// add the change to cJournal
-	if(ixCJournal<0){ Scene_interrupt_set(scene,substep,INT_NOT_IMMEDIATE|INT_DESTRUCTIVE|INT_ARRAYS); return; }
+	if(ixCJournal < 0) {
+		Scene_interrupt_set(scene, substep, INT_NOT_IMMEDIATE | INT_DESTRUCTIVE | INT_ARRAYS);
+		return; 
+	}
 
-	struct CJournalItem i; i.ids=ids; i.index=ixCon; i.what=CJOURNAL_POT2CON;
-	cJournal[ixCJournal]=i;
+	struct CJournalItem i; 
+	i.ids = ids; 
+	i.index = ixCon;
+	i.what = CJOURNAL_POT2CON;
+	cJournal[ixCJournal] = i;
 };
 
 bool Bbox_overlap(global float* _A, global float* _B){
@@ -382,16 +406,16 @@ void computeL6GeomGeneric(struct Contact* c, const Vec3 pos1, const Vec3 vel1, c
 	c->geom.l6g.uN=uN;
 }
 
-kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
+kernel void contCompute_C(KERNEL_ARGUMENT_LIST1){
 	const int substep=SUB_contCompute;
 	if(Scene_skipKernel(scene,substep)) return;
 	size_t cid=getLinearWorkItem();
-	if(cid>=scene->arrSize[ARR_CON]) return; // in case we are past real number of contacts
+	if(cid>=countCon) return; // in case we are past real number of contacts
 	struct Contact c=con[cid];
 	if(c.ids.s0<0 || c.ids.s1<0) return; // deleted contact
 	PRINT_TRACE("contCompute_C");
 
-	const Real dt=scene->dt;
+	const Real dt=sceneDt;
 	// assigned by the geom part, consumed by the phys part; needed for new contacts only
 	double2 physLengths; 
 	double physArea;
@@ -571,14 +595,14 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST){
 }
 
 
-kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST){
+kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST1){
 	const int substep=SUB_forcesToParticles;
 	if(Scene_skipKernel(scene,substep)) return;
 	PRINT_TRACE("forcesToParticle_C");
 
 	/* how to synchronize access to particles? */
-	long cid=getLinearWorkItem();
-	if(cid>=scene->arrSize[ARR_CON]) return;
+	size_t cid=getLinearWorkItem();
+	if(cid>=countCon) return;
 	const struct Contact c=con[cid];
 	if(con_geomT_get(&c)==0) return;
 	global struct Particle *p1=&(par[c.ids.x]), *p2=&(par[c.ids.y]);
@@ -767,20 +791,6 @@ void createOverlay (
 }
 
 kernel
-void test(
-	global int* data, 
-	const int count)
-{
-	long tId=getLinearWorkItem();
-	//printf("id: %d\n", tId);
-	if(tId > count){
-		return;
-	}
-	data[tId] = tId;
-	
-}
-
-kernel
 void computeNoOfInv (
 	global struct AxBound* data,
 	global uint* counter,
@@ -788,7 +798,7 @@ void computeNoOfInv (
 	const uint offset,
 	const uint count)
 {
-	uint threadId = getLinearWorkItem();
+	size_t threadId = getLinearWorkItem();
 	if (threadId > (count-1)) {
 		return;
 	}
@@ -828,7 +838,7 @@ void computeInv (
 	const uint offset,
 	const uint count)
 {	
-	uint threadId = getLinearWorkItem();
+	size_t threadId = getLinearWorkItem();
 
 	if (threadId > (count-1)) {
 		return;

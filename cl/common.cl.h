@@ -61,8 +61,44 @@
 		else if(i<=wis[1]*wis[2]) ret=cl::NDRange(1,i/wis[2]+(i%wis[2]==0?0:1),wis[2]);
 		else ret = cl::NDRange(i/(wis[1]*wis[2])+(i%(wis[1]*wis[2])==0?0:1),wis[1],wis[2]);
 		// const size_t* rr(ret); std::cout<<"NDRange ("<<i<<"≤"<<rr[0]*rr[1]*rr[2]<<"): "<<rr[0]<<","<<rr[1]<<","<<rr[2]<<endl;
+
 		return ret;
 	}
+
+
+    static cl::NDRange makeGlobal3DRange(size_t i ,const shared_ptr<cl::Device> dev){
+		uint cores = dev->getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
+		int oneCore = i / cores;
+		size_t maxItemInGroup = dev->getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
+	
+		uint multiple = 1;
+		if (oneCore > maxItemInGroup) {
+			multiple = oneCore / maxItemInGroup;
+			oneCore = maxItemInGroup;
+		}
+		uint oneCoreOneDim = trunc(pow(oneCore, 1.0/3.0)) + 1;
+
+	    return cl::NDRange(multiple * oneCoreOneDim * 2, multiple * oneCoreOneDim * 2,
+				multiple * oneCoreOneDim * 2);
+	}
+
+    
+	static cl::NDRange makeLocal3DRange(size_t i, const shared_ptr<cl::Device> dev){
+		uint cores = dev->getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
+		int oneCore = i / cores;
+		size_t maxItemInGroup = dev->getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
+	
+		uint multiple = 1;
+		if (oneCore > maxItemInGroup) {
+			multiple = oneCore / maxItemInGroup;
+			oneCore = maxItemInGroup;
+		}
+		uint oneCoreOneDim = trunc(pow(oneCore, 1.0/3.0)) + 1;
+
+		return cl::NDRange(oneCoreOneDim, oneCoreOneDim, oneCoreOneDim);
+	}
+
+	
 #endif
 #ifdef __OPENCL_VERSION__
 	static size_t getLinearWorkItem(){ return get_global_id(0)*(get_global_size(1)*get_global_size(2))+get_global_id(1)*get_global_size(2)+get_global_id(2); }

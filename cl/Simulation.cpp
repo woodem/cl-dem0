@@ -110,7 +110,11 @@ namespace clDem{
 		k.setArg(6,bufSize[_cJournal].buf);
 		k.setArg(7,bufSize[_clumps].buf);
 		k.setArg(8,bufSize[_bboxes].buf);
-		return k;
+		k.setArg(9,scene.arrSize[ARR_PAR]);
+		k.setArg(10,scene.arrSize[ARR_CON]);
+		k.setArg(11,scene.arrSize[ARR_POT]);
+		k.setArg(12,scene.dt);
+			return k;
 	}
 
 	void Simulation::initCl(){
@@ -307,13 +311,35 @@ namespace clDem{
 				if(substepLast>=ki.substep) throw std::runtime_error("Kernel substep numbers are not an increasing sequence (error in kernel.cl.h)");
 				substepLast=ki.substep;
 				cl::Kernel k=makeKernel(ki.name);
-				switch(ki.argsType){
+				std::cout << "kernel: " << ki.name << std::endl;
+#if 1
+			switch(ki.argsType){
+					case KARGS_SINGLE: queue->enqueueTask(k); break;
+					case KARGS_PAR:	queue->enqueueNDRangeKernel(k, cl::NDRange(),
+							makeGlobal3DRange(bufSize[_par].size, device),
+							makeLocal3DRange(bufSize[_par].size, device));
+							break;
+					case KARGS_CON: queue->enqueueNDRangeKernel(k, cl::NDRange(),
+							makeGlobal3DRange(bufSize[_con].size, device),
+							makeLocal3DRange(bufSize[_con].size, device));
+							break;
+					case KARGS_POT: queue->enqueueNDRangeKernel(k, cl::NDRange(),
+							makeGlobal3DRange(bufSize[_pot].size, device),
+							makeLocal3DRange(bufSize[_pot].size, device));
+							break;
+					default: throw std::runtime_error("Invalid KernelInfo.argsType value "
+						    + lexical_cast<string>(ki.argsType));
+			}
+#endif
+#if 0
+			switch(ki.argsType){
 					case KARGS_SINGLE: queue->enqueueTask(k); break;
 					case KARGS_PAR: queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_par].size,device),cl::NDRange()); break;
 					case KARGS_CON: queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_con].size,device),cl::NDRange()); break;
 					case KARGS_POT: queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_pot].size,device),cl::NDRange()); break;
 					default: throw std::runtime_error("Invalid KernelInfo.argsType value "+lexical_cast<string>(ki.argsType));
-				}
+			}
+#endif
 				LOOP_DBG("{"<<ki.name<<"}");
 			}
 		}

@@ -407,11 +407,11 @@ void CpuCollider::incrementalStep(){
 	replayJournal();
 	checkConsistency();
 	updateBounds();
-	if (useGpu){
-		inversionsGpu();
-	} else {
+	//if (useGpu){
+	//	inversionsGpu();
+	//} else {
 		insertionSort();
-	}
+	//}
 	compactFree();
 }
 
