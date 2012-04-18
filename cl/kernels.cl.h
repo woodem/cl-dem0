@@ -51,7 +51,7 @@ CLDEM_NAMESPACE_END()
 
 #if 1
 	#define TRYLOCK(a) atom_cmpxchg(a,0,1)
-	#define LOCK(a) while(TRYLOCK(a))
+	#define LOCK(a) atom_cmpxchg(a, 0, 1) //while(TRYLOCK(a))
 	#define UNLOCK(a) atom_xchg(a,0)
 #else
 	#define TRYLOCK(a)
@@ -144,7 +144,7 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST1){
 	bool useAspherical=(pp.inertia.x!=pp.inertia.y || pp.inertia.y!=pp.inertia.z);
 
 	if((dofs&par_dofs_trans)==par_dofs_trans){ // all translations possible, use vector expr
-		CL_ASSERT(pp.mass>0);
+		CL_ASSERT(pp.mass > 0);
 		accel+=pp.force/pp.mass;
 	} else {
 		for(int ax=0; ax<3; ax++){
@@ -268,10 +268,9 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST1){
 }
 
 kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
-	//struct Scene loclaScene = &scene;
+
 	const int substep = SUB_checkPotCon;
-	// (?) only read from scene
-	if(Scene_skipKernel(scene,substep)) return;
+	if(Scene_skipKernel(scene, substep)) return;
 	size_t cid = getLinearWorkItem();
 	// in case we are past real number of contacts
 	if(cid >= countPot) return;
@@ -279,16 +278,24 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 	if(ids.s0 < 0 || ids.s1 < 0) return; // deleted contact
 	PRINT_TRACE("checkPotCon_PC");
 	
+	/*1*/
+	struct Particle p1 = par[ids.s0];
+	struct Particle p2 = par[ids.s1];
+	/*_1*/
+
 	// always make contacts such that shape index of the first particle
 	// <= shape index of the second particle
-	int flip = par_shapeT_get_global(&par[ids.s0]) > par_shapeT_get_global(&par[ids.s1]);
+/*	int flip = par_shapeT_get_global(&par[ids.s0]) > par_shapeT_get_global(&par[ids.s1]);*/
 	//int flip = par_shapeT_get_global(p1) > par_shapeT_get_global(p2);
-	if(flip) {
-		ids = (par_id2_t)(ids.s1,ids.s0);
+
+	/*if(flip) {*/
+	if(par_shapeT_get_local(&p1) > par_shapeT_get_local(&p2)){
+		ids = (par_id2_t)(ids.s1, ids.s0);
 	}
+	
 	/*1*/
-	struct Particle p1=par[ids.s0];
-	struct Particle p2=par[ids.s1];
+	//struct Particle p1=par[ids.s0];
+	//struct Particle p2=par[ids.s1];
 	/*_1*/
 
 	switch(SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2))){
@@ -602,20 +609,28 @@ kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST1){
 
 	/* how to synchronize access to particles? */
 	size_t cid=getLinearWorkItem();
-	if(cid>=countCon) return;
+	if(cid >= countCon) return;
 	const struct Contact c=con[cid];
 	if(con_geomT_get(&c)==0) return;
+
+
 	global struct Particle *p1=&(par[c.ids.x]), *p2=&(par[c.ids.y]);
 	Mat3 R_T=Mat3_transpose(c.ori);
 	Vec3 Fp1=+Mat3_multV(R_T,c.force);
 	Vec3 Fp2=-Mat3_multV(R_T,c.force);
 	Vec3 Tp1=+cross(c.pos-p1->pos,Mat3_multV(R_T,c.force))+Mat3_multV(R_T,c.torque);
 	Vec3 Tp2=-cross(c.pos-p2->pos,Mat3_multV(R_T,c.force))-Mat3_multV(R_T,c.torque);
-	LOCK(&p1->mutex);
-		p1->force+=Fp1; p1->torque+=Tp1;
+
+
+	while(LOCK(&p1->mutex));
+		p1->force+=Fp1; 
+		p1->torque+=Tp1;
 	UNLOCK(&p1->mutex);
-	LOCK(&p2->mutex);
-		p2->force+=Fp2; p2->torque+=Tp2;
+
+	//LOCK(&p2->mutex);
+	while(LOCK(&p2->mutex));
+		p2->force+=Fp2;
+		p2->torque+=Tp2;
 	UNLOCK(&p2->mutex);
 }
 

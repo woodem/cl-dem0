@@ -158,7 +158,10 @@ typedef long par_id_t;
 	typedef cl_long2 par_id2_t;
 #endif
 
-inline int flags_get(const int flags, const flagSpec spec){ return (flags>>spec.x)&((1<<spec.y)-1); }
+inline int flags_get(const int flags, const flagSpec spec){
+	return (flags >> spec.x) & ((1 << spec.y) - 1); 
+}
+
 inline void flags_set_global(global int *flags, const flagSpec spec, int val){
 	(*flags)&=~(((1<<spec.y)-1)<<spec.x); /* zero field */
 	#ifdef __cplusplus

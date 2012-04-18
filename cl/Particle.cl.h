@@ -108,7 +108,12 @@ constant flagSpec par_flag_matId  ={PAR_OFF_matId,PAR_LEN_matId};
 // static_assert(par_flag_groups.x+par_flag_groups.y<=32); // don't overflow int
 
 #define PARTICLE_FLAG_GET_SET(what) \
-	inline int par_##what##_get_global(global const struct Particle *p){ return flags_get(p->flags,par_flag_##what); } \
+	inline int par_##what##_get_local(const struct Particle *p) { \
+		return flags_get(p->flags, par_flag_##what); \
+	} \
+	inline int par_##what##_get_global(global const struct Particle *p) { \
+		return flags_get(p->flags, par_flag_##what); \
+	} \
 	inline int par_##what##_get(const struct Particle *p){ return flags_get(p->flags,par_flag_##what); } \
 	inline void par_##what##_set_global(global struct Particle *p, int val){ flags_set_global(&(p->flags),par_flag_##what,val); } \
 	inline void par_##what##_set(struct Particle *p, int val){ flags_set_local(&(p->flags),par_flag_##what,val); }
@@ -224,6 +229,7 @@ namespace clDem{
 				.PY_RWV(Particle,pos).PY_RWV(Particle,ori).PY_RWV(Particle,inertia).PY_RWV(Particle,angMom).PY_RW(Particle,mass).PY_RWV(Particle,vel).PY_RWV(Particle,angVel).PY_RWV(Particle,force).PY_RWV(Particle,torque).PY_RWV(Particle,bboxPos)
 				.add_property("shape",Particle_shape_get,Particle_shape_set)
 				// flags
+				.def_readonly("mutex", &Particle::mutex)
 				.def_readonly("flags",&Particle::flags)
 				.add_property("shapeT",par_shapeT_get)
 				.add_property("clumped",par_clumped_get,par_clumped_set)

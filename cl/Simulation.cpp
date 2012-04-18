@@ -71,7 +71,6 @@ namespace clDem{
 		// write scene
 		sceneBuf=writeBuf(scene);
 
-		// write arrays
 		writeVecBuf(par,bufSize[_par]);
 		// quasi-dynamic arrays
 		writeVecBuf(con,bufSize[_con]);
@@ -110,7 +109,9 @@ namespace clDem{
 		k.setArg(6,bufSize[_cJournal].buf);
 		k.setArg(7,bufSize[_clumps].buf);
 		k.setArg(8,bufSize[_bboxes].buf);
+	//	std::cout << "arg" << std::endl;
 		k.setArg(9,scene.arrSize[ARR_PAR]);
+	//	std::cout << "argK" << std::endl;
 		k.setArg(10,scene.arrSize[ARR_CON]);
 		k.setArg(11,scene.arrSize[ARR_POT]);
 		k.setArg(12,scene.dt);
@@ -311,25 +312,45 @@ namespace clDem{
 				if(substepLast>=ki.substep) throw std::runtime_error("Kernel substep numbers are not an increasing sequence (error in kernel.cl.h)");
 				substepLast=ki.substep;
 				cl::Kernel k=makeKernel(ki.name);
-				std::cout << "kernel: " << ki.name << std::endl;
+		//		std::cout << "kernel: " << ki.name << std::endl;
 #if 1
 			switch(ki.argsType){
-					case KARGS_SINGLE: queue->enqueueTask(k); break;
-					case KARGS_PAR:	queue->enqueueNDRangeKernel(k, cl::NDRange(),
+				case KARGS_SINGLE: //std::cout << "SINGLE: " << ki.name << std::endl;
+ 									   queue->enqueueTask(k); 
+									   break;									   
+					case KARGS_PAR:	//std::cout << "PAR: " << ki.name << std::endl;
+									//FIXME !mutex! not function on more work-item on the same work-group
+									if(ki.name == "forcesToParticles_C"){
+										queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_par].size,device), cl::NDRange()); 								
+										break;
+									}
+									queue->enqueueNDRangeKernel(k, cl::NDRange(),
 							makeGlobal3DRange(bufSize[_par].size, device),
 							makeLocal3DRange(bufSize[_par].size, device));
 							break;
-					case KARGS_CON: queue->enqueueNDRangeKernel(k, cl::NDRange(),
+					case KARGS_CON: if(ki.name == "forcesToParticles_C"){
+										queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_con].size,device), cl::NDRange()); 								
+										break;
+									}
+	
+	//						std::cout << "CON: " << ki.name << std::endl;
+									queue->enqueueNDRangeKernel(k, cl::NDRange(),
 							makeGlobal3DRange(bufSize[_con].size, device),
 							makeLocal3DRange(bufSize[_con].size, device));
 							break;
-					case KARGS_POT: queue->enqueueNDRangeKernel(k, cl::NDRange(),
+					case KARGS_POT:	if(ki.name == "forcesToParticles_C"){
+										queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_pot].size,device), cl::NDRange()); 								
+										break;
+									}
+		//					std::cout << "POT: " << ki.name << std::endl; 
+								   queue->enqueueNDRangeKernel(k, cl::NDRange(),
 							makeGlobal3DRange(bufSize[_pot].size, device),
 							makeLocal3DRange(bufSize[_pot].size, device));
 							break;
 					default: throw std::runtime_error("Invalid KernelInfo.argsType value "
 						    + lexical_cast<string>(ki.argsType));
 			}
+//	std::cout << "KERNEL OK" << std::endl;
 #endif
 #if 0
 			switch(ki.argsType){
