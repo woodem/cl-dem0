@@ -28,7 +28,7 @@ static struct KernelInfo clDemKernels[]={
 	{ SUB_updateBboxes     , "updateBboxes_P"    , KARGS_PAR },
 	{ SUB_checkPotCon      , "checkPotCon_PC"    , KARGS_POT },
 	{ SUB_contCompute      , "contCompute_C"     , KARGS_CON },
-	{ SUB_forcesToParticles, "forcesToParticles_C", KARGS_CON },
+	{ SUB_forcesToParticles, "forcesToParticles_C", KARGS_CON_1 },
 	{ }, /*sentinel*/
 };
 #endif
