@@ -260,30 +260,25 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST1){
 	//printf("%ld: %v3g±(%g+%g) %v3g %v3g\n",id,p->pos,scene->verletDist,p->shape.sphere.radius,mn,mx);
 }
 
-kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
+// #define CON_LOG
 
+kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 	//struct Scene sceneL = &scene;
 	const int substep = SUB_checkPotCon;
 	//const int sStep = scene->step;
 	//const struct Interrupt sInt = scene->interrupt;
-    if(Scene_skipKernel(scene, substep)) return;
+	if(Scene_skipKernel(scene, substep)) return;
 	size_t cid = getLinearWorkItem();
 	// in case we are past real number of contacts
-	if(cid >= countPot) return;
+	if(cid>=countPot) return;
 	par_id2_t ids = pot[cid];
 	if(ids.s0<0 || ids.s1<0) return; // deleted contact
 	PRINT_TRACE("checkPotCon_PC");;
 
-	
-
 	// always make contacts such that shape index of the first particle
 	// <= shape index of the second particle
-	//int flip = par_shapeT_get_global(&par[ids.s0]) > par_shapeT_get_global(&par[ids.s1]);
-	//int flip = par_shapeT_get_global(p1) > par_shapeT_get_global(p2);
-
-	//if(flip) {
-	if (par_shapeT_get_global(&par[ids.s0]) > par_shapeT_get_global(&par[ids.s1])){
-		ids = (par_id2_t)(ids.s1, ids.s0);
+	if(par_shapeT_get_global(&par[ids.s0])>par_shapeT_get_global(&par[ids.s1])){
+		ids=(par_id2_t)(ids.s1,ids.s0);
 	}
 	
 	struct Particle p1=par[ids.s0];
@@ -293,7 +288,7 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
 			Real r1=p1.shape.sphere.radius, r2=p2.shape.sphere.radius;
 			if(distance(p1.pos,p2.pos) >= r1+r2){
-				// printf("pot ##%d+%d: distance %g.\n",(int)ids.s0,(int)ids.s1,distance(p1->pos,p2->pos)-(r1+r2));
+				// printf("pot ##%d+%d: distance %g.\n",(int)ids.s0,(int)ids.s1,distance(p1.pos,p2.pos)-(r1+r2));
 				return;
 			}
 			break;
@@ -304,6 +299,7 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 		}
 		default: printf("ERROR: Invalid shape indices in pot ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, wall+sphere=%d)!\n",ids.s0,ids.s1,par_shapeT_get(&p1),par_shapeT_get(&p2),SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall)); return;
 	};
+	//printf("asdasdasd");
 
 	#ifdef CON_LOG
 		printf("Creating ##%ld+%ld\n",ids.s0,ids.s1);
@@ -366,8 +362,8 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 bool Bbox_overlap(global float* _A, global float* _B){
 	float8 A=vload8(0,_A), B=vload8(0,_B);
 	return _A[0] < _B[3] && _B[0] < _A[3] &&
-		   _A[1] < _B[4] && _B[1] < _A[4] &&
-		   _A[2] < _B[5] && _B[2] < _A[5];
+		_A[1] < _B[4] && _B[1] < _A[4] &&
+		_A[2] < _B[5] && _B[2] < _A[5];
 }
 
 void computeL6GeomGeneric(struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, Real dt){

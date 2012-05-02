@@ -314,9 +314,15 @@ namespace clDem{
 				cl::Kernel k=makeKernel(ki.name);
 				switch(ki.argsType){
 					case KARGS_SINGLE: queue->enqueueTask(k); break;
-					case KARGS_PAR:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_par].size,device),makeLocal3DRange(bufSize[_par].size,device)); break;
-					case KARGS_CON:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_con].size,device),makeLocal3DRange(bufSize[_con].size,device)); break;
-					case KARGS_POT:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_pot].size,device),makeLocal3DRange(bufSize[_pot].size,device)); break;
+					#if 0
+						case KARGS_PAR:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_par].size,device),makeLocal3DRange(bufSize[_par].size,device)); break;
+						case KARGS_CON:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_con].size,device),makeLocal3DRange(bufSize[_con].size,device)); break;
+						case KARGS_POT:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_pot].size,device),makeLocal3DRange(bufSize[_pot].size,device)); break;
+					#else
+						case KARGS_PAR:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_par].size,device),cl::NDRange()); break;
+						case KARGS_CON:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_con].size,device),cl::NDRange()); break;
+						case KARGS_POT:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_pot].size,device),cl::NDRange()); break;
+					#endif
 					// single-threaded run, as workaround for dead-lock in spinlock
 					case KARGS_CON_1: queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_con].size,device),cl::NDRange()); break;
 					default: throw std::runtime_error("Invalid KernelInfo.argsType value "+lexical_cast<string>(ki.argsType));
