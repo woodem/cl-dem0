@@ -314,6 +314,7 @@ namespace clDem{
 				cl::Kernel k=makeKernel(ki.name);
 		//		std::cout << "kernel: " << ki.name << std::endl;
 #if 1
+				string ret = "";
 			switch(ki.argsType){
 				case KARGS_SINGLE: //std::cout << "SINGLE: " << ki.name << std::endl;
  									   queue->enqueueTask(k); 
@@ -324,9 +325,13 @@ namespace clDem{
 										queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_par].size,device), cl::NDRange()); 								
 										break;
 									}
-									queue->enqueueNDRangeKernel(k, cl::NDRange(),
+									try {
+								ret = queue->enqueueNDRangeKernel(k, cl::NDRange(),
 							makeGlobal3DRange(bufSize[_par].size, device),
 							makeLocal3DRange(bufSize[_par].size, device));
+									} catch (cl::Error &er) {
+										std::cout << "err:" << er.err() << std::endl;
+									}
 							break;
 					case KARGS_CON: if(ki.name == "forcesToParticles_C"){
 										queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_con].size,device), cl::NDRange()); 								
@@ -334,18 +339,27 @@ namespace clDem{
 									}
 	
 	//						std::cout << "CON: " << ki.name << std::endl;
-									queue->enqueueNDRangeKernel(k, cl::NDRange(),
+	try {
+									ret = queue->enqueueNDRangeKernel(k, cl::NDRange(),
 							makeGlobal3DRange(bufSize[_con].size, device),
-							makeLocal3DRange(bufSize[_con].size, device));
+						makeLocal3DRange(bufSize[_con].size,device));
+} catch (cl::Error &er) {
+										std::cout << "err:" << er.err() << std::endl;
+									}
+				
 							break;
 					case KARGS_POT:	if(ki.name == "forcesToParticles_C"){
 										queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_pot].size,device), cl::NDRange()); 								
 										break;
 									}
 		//					std::cout << "POT: " << ki.name << std::endl; 
-								   queue->enqueueNDRangeKernel(k, cl::NDRange(),
+		try {
+								   ret = queue->enqueueNDRangeKernel(k, cl::NDRange(),
 							makeGlobal3DRange(bufSize[_pot].size, device),
 							makeLocal3DRange(bufSize[_pot].size, device));
+						} catch (cl::Error &er) {
+										std::cout << "err:" << er.err() << std::endl;
+			}
 							break;
 					default: throw std::runtime_error("Invalid KernelInfo.argsType value "
 						    + lexical_cast<string>(ki.argsType));

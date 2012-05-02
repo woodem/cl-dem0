@@ -68,7 +68,21 @@
 
     static cl::NDRange makeGlobal3DRange(size_t i ,const shared_ptr<cl::Device> dev){
 		uint cores = dev->getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
-		int oneCore = i / cores;
+		uint tmpCores = trunc(pow(cores, 1.0/3.0)) + 1;
+		size_t min = 64;
+		if(pow(tmpCores, 3)*min < i) {
+			uint multi = trunc(i / tmpCores / (8*8*8)) + 1;		
+			uint multi1 = multi*8*tmpCores;
+			//uint multi2 = multi*8*tmpCores;
+			//uint multi3 = multi*8*tmpCores;
+			//std::cout << multi1 << ", " << multi2 << ", " << multi3 << std::endl;
+			return cl::NDRange(multi1,multi1,multi1);
+		} else {
+			return cl::NDRange(4*tmpCores, 4*tmpCores, 4*tmpCores);
+		}
+		//return cl::NDRange();
+	/*	uint cores = dev->getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
+		int oneCore = i;// / cores;
 		size_t maxItemInGroup = dev->getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
 	
 		uint multiple = 1;
@@ -76,16 +90,31 @@
 			multiple = oneCore / maxItemInGroup;
 			oneCore = maxItemInGroup;
 		}
-		uint oneCoreOneDim = trunc(pow(oneCore, 1.0/3.0)) + 1;
-
-	    return cl::NDRange(multiple * oneCoreOneDim * 2, multiple * oneCoreOneDim * 2,
-				multiple * oneCoreOneDim * 2);
+		uint tmp = trunc(pow(cores, 1.0/3.0)) + 1;
+		uint oneCoreOneDim = trunc(pow(oneCore/cores, 1.0/3.0)) + 1;
+		multiple *= tmp;
+		
+		//if(((int)pow(oneCoreOneDim, 3)) % 32 != 0){
+		//	inc = trunc((32 - (((int)pow(oneCoreOneDim, 3)) % 32)) / (pow(oneCoreOneDim, 2)));
+	//	}
+		std::cout << "size: " << i << " GLOBAL: " << multiple * oneCoreOneDim << std::endl;
+	    return cl::NDRange(multiple * oneCoreOneDim, multiple * oneCoreOneDim, multiple * oneCoreOneDim);*/
 	}
 
     
 	static cl::NDRange makeLocal3DRange(size_t i, const shared_ptr<cl::Device> dev){
 		uint cores = dev->getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
-		int oneCore = i / cores;
+		uint tmpCores = trunc(pow(cores, 1.0/3.0)) + 1;
+		uint min = 64;
+		if(pow(tmpCores, 3)*min < i) {
+			return cl::NDRange(8,8,8);
+		} else {
+			return cl::NDRange(4,4,4);
+		}
+//		size_t maxItemInGroup = dev->getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
+	
+		/*uint cores = dev->getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
+		int oneCore = i;// / cores;
 		size_t maxItemInGroup = dev->getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
 	
 		uint multiple = 1;
@@ -93,9 +122,13 @@
 			multiple = oneCore / maxItemInGroup;
 			oneCore = maxItemInGroup;
 		}
-		uint oneCoreOneDim = trunc(pow(oneCore, 1.0/3.0)) + 1;
+		uint oneCoreOneDim = trunc(pow(oneCore/cores, 1.0/3.0)) + 1;
 
-		return cl::NDRange(oneCoreOneDim, oneCoreOneDim, oneCoreOneDim);
+	//	if(((int)pow(oneCoreOneDim, 3)) % 32 != 0){
+		//inc = trunc((32 - (((int)pow(oneCoreOneDim, 3)) % 32)) / (pow(oneCoreOneDim, 2)));
+		//}
+		std::cout << "size: " << i << " Local: " << oneCoreOneDim << std::endl;
+		return cl::NDRange(oneCoreOneDim, oneCoreOneDim, oneCoreOneDim);*/
 	}
 
 	

@@ -39,7 +39,6 @@ CLDEM_NAMESPACE_END()
 #ifdef __OPENCL_VERSION__
 
 
-
 // all kernels take the same set of arguments, for simplicity in the host code
 #define KERNEL_ARGUMENT_LIST1 global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int* conFree, global long2* pot, global int *potFree, global struct CJournalItem* cJournal, global struct ClumpMember* clumps, global float* bboxes, const int countPar, const int countCon, const int countPot, const Real sceneDt
 
@@ -49,15 +48,9 @@ CLDEM_NAMESPACE_END()
 	#define PRINT_TRACE(name) // { if(getLinearWorkItem()==0) printf("%s:%-4d %4ld/%d %s\n",__FILE__,__LINE__,scene->step,substep,name); }
 #endif
 
-#if 1
 	#define TRYLOCK(a) atom_cmpxchg(a,0,1)
-	#define LOCK(a) atom_cmpxchg(a, 0, 1) //while(TRYLOCK(a))
+	#define LOCK(a)  while(TRYLOCK(a))
 	#define UNLOCK(a) atom_xchg(a,0)
-#else
-	#define TRYLOCK(a)
-	#define LOCK(a)
-	#define UNLOCK(a)
-#endif
 
 #ifdef TRACK_ENERGY
 	#define ADD_ENERGY(scene,name,E) Scene_energyAdd(scene,ENERGY_##name,E);
@@ -269,36 +262,68 @@ kernel void updateBboxes_P(KERNEL_ARGUMENT_LIST1){
 
 kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 
+	//struct Scene sceneL = &scene;
 	const int substep = SUB_checkPotCon;
-	if(Scene_skipKernel(scene, substep)) return;
+	//const int sStep = scene->step;
+	//const struct Interrupt sInt = scene->interrupt;
+    if(Scene_skipKernel/*1(sStep, sInt, substep)*/(scene, substep)) return;
 	size_t cid = getLinearWorkItem();
 	// in case we are past real number of contacts
 	if(cid >= countPot) return;
 	par_id2_t ids = pot[cid];
 	if(ids.s0 < 0 || ids.s1 < 0) return; // deleted contact
-	PRINT_TRACE("checkPotCon_PC");
+	PRINT_TRACE("checkPotCon_PC");;
+
 	
-	/*1*/
-	struct Particle p1 = par[ids.s0];
-	struct Particle p2 = par[ids.s1];
-	/*_1*/
 
 	// always make contacts such that shape index of the first particle
 	// <= shape index of the second particle
-/*	int flip = par_shapeT_get_global(&par[ids.s0]) > par_shapeT_get_global(&par[ids.s1]);*/
+	//int flip = par_shapeT_get_global(&par[ids.s0]) > par_shapeT_get_global(&par[ids.s1]);
 	//int flip = par_shapeT_get_global(p1) > par_shapeT_get_global(p2);
 
-	/*if(flip) {*/
-	if(par_shapeT_get_local(&p1) > par_shapeT_get_local(&p2)){
+	//if(flip) {
+	if (par_shapeT_get_global(&par[ids.s0]) > par_shapeT_get_global(&par[ids.s1])){
 		ids = (par_id2_t)(ids.s1, ids.s0);
 	}
 	
 	/*1*/
-	//struct Particle p1=par[ids.s0];
-	//struct Particle p2=par[ids.s1];
+	//struct Particle p1 = par[ids.s0];
+	//struct Particle p2 = par[ids.s1];
 	/*_1*/
 
+    int flags1 = par[ids.s0].flags;
+    int flags2 = par[ids.s1].flags;
+	Vec3 pos1 =  par[ids.s0].pos;
+	Vec3 pos2 =  par[ids.s1].pos;
+	int shapeWallAxis = par[ids.s0].shape.wall.axis;
+
+#if 1			
+	int oo = 1 << 2;
+	int shape = //SHAPET2_COMBINE(par_shapeT_get(&p1), par_shapeT_get(&p2));
+			flags_get(flags1, par_flag_shapeT) | (flags_get(flags2, par_flag_shapeT) << 2);
+		Real r2 = par[ids.s1].shape.sphere.radius;//p2.shape.sphere.radius;
+	if(shape == SHAPET2_COMBINE(Shape_Sphere, Shape_Sphere)){
+		Real r1 = par[ids.s0].shape.sphere.radius;//p1.shape.sphere.radius;
+
+		if(distance(pos1, pos2) >= r1 + r2){
+			return;
+		}
+	} else {
+		if(shape == SHAPET2_COMBINE(Shape_Wall, Shape_Sphere)) {
+			if(fabs(((Real*)(&(pos2)))[shapeWallAxis] - 	//??realy p1 both??
+			  ((Real*)(&(pos1)))[shapeWallAxis]) >= r2) {
+				return;
+			}
+		} else {
+			printf("ERROR: Invalid shape indices in pot");/* ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, wall+sphere=%d)!\n",ids.s0,ids.s1,par_shapeT_get(&p1),par_shapeT_get(&p2),SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall));*/
+			return;
+		}
+	}	
+
+#else
+
 	switch(SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2))){
+
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
 			Real r1=p1.shape.sphere.radius, r2=p2.shape.sphere.radius;
 			if(distance(p1.pos,p2.pos) >= r1+r2){
@@ -313,6 +338,8 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 		}
 		default: printf("ERROR: Invalid shape indices in pot ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, wall+sphere=%d)!\n",ids.s0,ids.s1,par_shapeT_get(&p1),par_shapeT_get(&p2),SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall)); return;
 	};
+#endif
+
 	#ifdef CON_LOG
 		printf("Creating ##%ld+%ld\n",ids.s0,ids.s1);
 	#endif
@@ -344,7 +371,7 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 		return;
 	}
 	// actually create the new contact here
-	#if 1
+	#if 0
 		// debugging only (the race conditions is fixed now, so it should not happen anymore)
 		if(con[ixCon].ids.s0 > 0) {
 			printf("ERROR: con[%d] reported as free, but contains ##%ld+%ld\n", 
@@ -354,6 +381,7 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 	// this is perhaps too expensive?
 	struct Contact c;
 	Contact_init(&c);
+	//c.ids = ids;
 	con[ixCon]=c;
 	con[ixCon].ids=ids;
 
@@ -372,10 +400,9 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 
 bool Bbox_overlap(global float* _A, global float* _B){
 	float8 A=vload8(0,_A), B=vload8(0,_B);
-	return
-		A.s0<B.s3 && B.s0<A.s3 && // xMinA<xMaxB && xMinB<xMaxA
-		A.s1<B.s4 && B.s1<A.s4 &&
-		A.s2<B.s5 && B.s2<A.s5;
+	return _A[0] < _B[3] && _B[0] < _A[3] &&
+		   _A[1] < _B[4] && _B[1] < _A[4] &&
+		   _A[2] < _B[5] && _B[2] < _A[5];
 }
 
 void computeL6GeomGeneric(struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, Real dt){
@@ -622,13 +649,12 @@ kernel void forcesToParticles_C(KERNEL_ARGUMENT_LIST1){
 	Vec3 Tp2=-cross(c.pos-p2->pos,Mat3_multV(R_T,c.force))-Mat3_multV(R_T,c.torque);
 
 
-	while(LOCK(&p1->mutex));
+	LOCK(&p1->mutex);
 		p1->force+=Fp1; 
 		p1->torque+=Tp1;
 	UNLOCK(&p1->mutex);
 
-	//LOCK(&p2->mutex);
-	while(LOCK(&p2->mutex));
+	LOCK(&p2->mutex);
 		p2->force+=Fp2;
 		p2->torque+=Tp2;
 	UNLOCK(&p2->mutex);
