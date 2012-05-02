@@ -314,7 +314,7 @@ namespace clDem{
 				cl::Kernel k=makeKernel(ki.name);
 				switch(ki.argsType){
 					case KARGS_SINGLE: queue->enqueueTask(k); break;
-					#if 0
+					#if 1
 						case KARGS_PAR:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_par].size,device),makeLocal3DRange(bufSize[_par].size,device)); break;
 						case KARGS_CON:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_con].size,device),makeLocal3DRange(bufSize[_con].size,device)); break;
 						case KARGS_POT:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_pot].size,device),makeLocal3DRange(bufSize[_pot].size,device)); break;
