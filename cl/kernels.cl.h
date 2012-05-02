@@ -13,8 +13,8 @@ CLDEM_NAMESPACE_BEGIN()
 enum _substeps{ SUB_nextTimestep=0, SUB_integrator, SUB_updateBboxes, SUB_checkPotCon, SUB_contCompute, SUB_forcesToParticles };
 
 #ifdef __cplusplus
-/* how is kernel parallellized: single (task), over particles, over contacts, over potential contacts */
-enum _kargs{ KARGS_SINGLE, KARGS_PAR, KARGS_CON, KARGS_POT };
+/* how is kernel parallellized: single (task), over particles, over contacts, over potential contacts  */
+enum _kargs{ KARGS_SINGLE, KARGS_PAR, KARGS_CON, KARGS_POT, /*single-threaded over contacts, hack */ KARGS_CON_1 };
 /* information about kernel necessary for the queueing and interrupt logic */
 struct KernelInfo {
 	int substep;
@@ -266,12 +266,12 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 	const int substep = SUB_checkPotCon;
 	//const int sStep = scene->step;
 	//const struct Interrupt sInt = scene->interrupt;
-    if(Scene_skipKernel/*1(sStep, sInt, substep)*/(scene, substep)) return;
+    if(Scene_skipKernel(scene, substep)) return;
 	size_t cid = getLinearWorkItem();
 	// in case we are past real number of contacts
 	if(cid >= countPot) return;
 	par_id2_t ids = pot[cid];
-	if(ids.s0 < 0 || ids.s1 < 0) return; // deleted contact
+	if(ids.s0<0 || ids.s1<0) return; // deleted contact
 	PRINT_TRACE("checkPotCon_PC");;
 
 	
@@ -286,44 +286,10 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 		ids = (par_id2_t)(ids.s1, ids.s0);
 	}
 	
-	/*1*/
-	//struct Particle p1 = par[ids.s0];
-	//struct Particle p2 = par[ids.s1];
-	/*_1*/
-
-    int flags1 = par[ids.s0].flags;
-    int flags2 = par[ids.s1].flags;
-	Vec3 pos1 =  par[ids.s0].pos;
-	Vec3 pos2 =  par[ids.s1].pos;
-	int shapeWallAxis = par[ids.s0].shape.wall.axis;
-
-#if 1			
-	int oo = 1 << 2;
-	int shape = //SHAPET2_COMBINE(par_shapeT_get(&p1), par_shapeT_get(&p2));
-			flags_get(flags1, par_flag_shapeT) | (flags_get(flags2, par_flag_shapeT) << 2);
-		Real r2 = par[ids.s1].shape.sphere.radius;//p2.shape.sphere.radius;
-	if(shape == SHAPET2_COMBINE(Shape_Sphere, Shape_Sphere)){
-		Real r1 = par[ids.s0].shape.sphere.radius;//p1.shape.sphere.radius;
-
-		if(distance(pos1, pos2) >= r1 + r2){
-			return;
-		}
-	} else {
-		if(shape == SHAPET2_COMBINE(Shape_Wall, Shape_Sphere)) {
-			if(fabs(((Real*)(&(pos2)))[shapeWallAxis] - 	//??realy p1 both??
-			  ((Real*)(&(pos1)))[shapeWallAxis]) >= r2) {
-				return;
-			}
-		} else {
-			printf("ERROR: Invalid shape indices in pot");/* ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, wall+sphere=%d)!\n",ids.s0,ids.s1,par_shapeT_get(&p1),par_shapeT_get(&p2),SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall));*/
-			return;
-		}
-	}	
-
-#else
+	struct Particle p1=par[ids.s0];
+	struct Particle p2=par[ids.s1];
 
 	switch(SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2))){
-
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
 			Real r1=p1.shape.sphere.radius, r2=p2.shape.sphere.radius;
 			if(distance(p1.pos,p2.pos) >= r1+r2){
@@ -338,7 +304,6 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 		}
 		default: printf("ERROR: Invalid shape indices in pot ##%ld+%ld: %d+%d (%d; sphere+sphere=%d, wall+sphere=%d)!\n",ids.s0,ids.s1,par_shapeT_get(&p1),par_shapeT_get(&p2),SHAPET2_COMBINE(par_shapeT_get(&p1),par_shapeT_get(&p2)),SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere),SHAPET2_COMBINE(Shape_Sphere,Shape_Wall)); return;
 	};
-#endif
 
 	#ifdef CON_LOG
 		printf("Creating ##%ld+%ld\n",ids.s0,ids.s1);
@@ -357,7 +322,7 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 
 	// add to potFree
 	// not immediate, since other work-items might increase the required capacity yet more
-	if(ixPotFree < 0) {
+	if(ixPotFree<0) {
 		/* printf("!! potfree insufficient, size=%d, alloc=%d\n",
 		 * scene->arrSize[ARR_POTFREE],scene->arrAlloc[ARR_POTFREE]);*/
 		Scene_interrupt_set(scene,substep, INT_NOT_IMMEDIATE | INT_DESTRUCTIVE | INT_ARRAYS);
@@ -366,7 +331,7 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 	potFree[ixPotFree]=cid;
 	
 	// add to con
-	if(ixCon < 0) {
+	if(ixCon<0) {
 		Scene_interrupt_set(scene, substep, INT_NOT_IMMEDIATE | INT_DESTRUCTIVE | INT_ARRAYS);
 		return;
 	}
@@ -386,15 +351,15 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 	con[ixCon].ids=ids;
 
 	// add the change to cJournal
-	if(ixCJournal < 0) {
+	if(ixCJournal<0) {
 		Scene_interrupt_set(scene, substep, INT_NOT_IMMEDIATE | INT_DESTRUCTIVE | INT_ARRAYS);
 		return; 
 	}
 
 	struct CJournalItem i; 
-	i.ids = ids; 
-	i.index = ixCon;
-	i.what = CJOURNAL_POT2CON;
+	i.ids=ids; 
+	i.index=ixCon;
+	i.what=CJOURNAL_POT2CON;
 	cJournal[ixCJournal] = i;
 };
 

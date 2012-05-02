@@ -9,14 +9,14 @@ CLDEM_NAMESPACE_BEGIN();
 
 /* possibly we won't need different materials in one single simulation; stay general for now */
 struct ElastMat{
-	Real density, young; CLDEM_SERIALIZE_ATTRS((density)(young),/*otherCode*/);
+	Real density, young; CLDEM_SERIALIZE_ATTRS((density)(young),/*otherCode*/)
 	#if __cplusplus
 		ElastMat(): density(NAN), young(NAN){}
 	#endif
 };
 struct FrictMat{
 	Real density, young, ktDivKn, tanPhi;
-	; CLDEM_SERIALIZE_ATTRS((density)(young)(ktDivKn)(tanPhi),/*otherCode*/);
+	; CLDEM_SERIALIZE_ATTRS((density)(young)(ktDivKn)(tanPhi),/*otherCode*/)
 	#if __cplusplus
 		FrictMat(): density(NAN), young(NAN), ktDivKn(NAN), tanPhi(NAN) {}
 	#endif

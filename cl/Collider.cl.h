@@ -31,7 +31,7 @@ struct CJournalItem {
 		}
 		CJournalItem(){ CJournalItem_init(this); }
 	#endif
-	CLDEM_SERIALIZE_ATTRS((what)(index)(ids),/**/);
+	CLDEM_SERIALIZE_ATTRS((what)(index)(ids),/**/)
 };
 
 inline void CJournalItem_init(global struct CJournalItem* i){
@@ -57,7 +57,7 @@ namespace clDem{
 			//ConLoc(const ConLoc& b){ *this=b; }
 			//void operator=(const ConLoc& b){ ix=b.ix; isReal=b.isReal; } 
 			long ix; bool isReal;
-			CLDEM_SERIALIZE_ATTRS((ix)(isReal),/**/);
+			CLDEM_SERIALIZE_ATTRS((ix)(isReal),/**/)
 		};
 		typedef std::vector<std::map<par_id_t,ConLoc>> cMapT;
 		cMapT cMap;
