@@ -9,8 +9,7 @@
 
 // some things, such as unrestricted unions, don't work with gcc4.5
 #ifdef __cplusplus
-	#if __GNUC_MAJOR__>=4 && __GNUC_MINOR__>5
-		// define for gcc>=4.6
+	#if __GNUC__ >= 4 && __GNUC_MINOR__ > 5
 		#define GCC46
 	#endif
 #endif
@@ -59,6 +58,62 @@
 
 // these functions belong together
 #ifdef __cplusplus
+
+	static boost::tuple<cl::NDRange,cl::NDRange> makeGlobLocNDRanges(size_t globReqSize, bool onePerGroup, cl::Device& dev, cl::Kernel kernel, const string& log=""){
+		cl::NDRange globRange, locRange;
+		size_t loc[3], glob[3];
+		assert(dev.getInfo<CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS>()>=3);
+		// https://www.khronos.org/message_boards/viewtopic.php?f=28&t=4423
+		size_t maxLocSize=kernel.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(dev);
+		assert(dev.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>()>=maxLocSize);
+		size_t prefGroupSizeMult=kernel.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(dev);
+		vector<size_t> maxItems=dev.getInfo<CL_DEVICE_MAX_WORK_ITEM_SIZES>();
+		size_t cores=dev.getInfo<CL_DEVICE_MAX_COMPUTE_UNITS>();
+
+		if(maxItems[0]<prefGroupSizeMult) throw std::logic_error("Maximum items in work-group "+lexical_cast<string>(maxItems[0])+" are smaller than preferred multiple "+lexical_cast<string>(prefGroupSizeMult));
+
+		size_t itemsPerCore=globReqSize/cores;
+	
+		/*
+			1. work-group should have total size a multiple of CL_KERNEL_PREFERRED_WORK_GROUPSIZE_MULTIPLE
+			2. work-group dimensions MUST NOT exceed CL_DEVICE_MAX_WORK_ITEM_SIZES
+
+		 */
+		if(globReqSize==1 || onePerGroup){ loc[0]=1; loc[1]=1; loc[2]=1; }
+		// less items than make all cores busy; use smaller local group, but spread it accross cores better
+		else if(itemsPerCore<prefGroupSizeMult){
+			loc[0]=itemsPerCore; loc[1]=1; loc[2]=1;
+		}
+		else {
+			// make a the multiple itself, this guarantees b and c can be any numbers
+			int a=prefGroupSizeMult;
+			int b=min(maxItems[1],maxLocSize/a+(maxLocSize%a?1:0));
+			int c=maxLocSize/(a*b)+(maxLocSize%(a*b)?1:0);  // leftovers for c
+			loc[0]=a; loc[1]=b; loc[2]=c;
+			if((loc[0]*loc[1]*loc[2])%prefGroupSizeMult!=0){ cerr<<"WARN: Local size "<<loc[0]*loc[1]*loc[2]<<" not a multiple of "<<prefGroupSizeMult<<endl; }
+		}
+		size_t locSize=(loc[0])*(loc[1])*(loc[2]);
+
+		/* check constraints once again */
+		if(loc[0]>maxItems[0] || loc[1]>maxItems[1] || loc[2]>maxItems[2]){
+			cerr<<"Work item sizes "<<loc[0]<<","<<loc[1]<<","<<loc[2]<<" exceed device maximum "<<maxItems[0]<<","<<maxItems[1]<<","<<maxItems[2]<<endl; 
+			throw std::logic_error("CL_DEVICE_MAX_WORK_ITEM_SIZES exceeded. (bug)");
+		}
+		if(locSize>maxLocSize){ cerr<<"local size "<<loc[0]<<"×"<<loc[1]<<"×"<<loc[2]<<"="<<locSize<<" is greater than maximum work-group size "<<maxLocSize<<endl; throw std::logic_error("CL_KERNEL_WORK_GROUP_SIZE exceeded (bug)"); }
+		assert(locSize<=maxLocSize);
+		assert(!onePerGroup || locSize==1);
+
+		// glob[i] should be multiples of loc[i]
+		glob[0]=((globReqSize%locSize?1:0)+globReqSize/locSize)*loc[0]; glob[1]=loc[1]; glob[2]=loc[2];
+		size_t globSize=glob[0]*glob[1]*glob[2];
+
+		if(!log.empty()) cerr<<log<<" "<<globReqSize<<" → "<<glob[0]<<"×"<<glob[1]<<"×"<<glob[2]<<" = ("<<glob[0]/loc[0]<<"×"<<glob[1]/loc[1]<<"×"<<glob[2]/loc[2]<<")×grp("<<loc[0]<<"×"<<loc[1]<<"×"<<loc[2]<<"="<<locSize<<"/"<<maxLocSize<<") = "<<globSize<<" (waste "<<int((globSize-globReqSize)*100./globReqSize)<<"%); "<<(onePerGroup?"[single] ":"")<<"grp max ("<<maxItems[0]<<"×"<<maxItems[1]<<"×"<<maxItems[2]<<")"<<endl;
+
+		if(globSize<globReqSize) throw std::logic_error("Total number of work-items "+lexical_cast<string>(globSize)+" smaller than the required number "+lexical_cast<string>(globReqSize));
+
+		return boost::make_tuple(cl::NDRange(glob[0],glob[1],glob[2]),cl::NDRange(loc[0],loc[1],loc[2]));
+	}
+
 	static cl::NDRange makeLinear3DRange(size_t i, const shared_ptr<cl::Device> dev){
 		assert(dev->getInfo<CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS>()>=3);
 		vector<size_t> wis=dev->getInfo<CL_DEVICE_MAX_WORK_ITEM_SIZES>();
@@ -74,6 +129,8 @@
 
 		return ret;
 	}
+
+#if 0
 
 
     static cl::NDRange makeGlobal3DRange(size_t i ,const shared_ptr<cl::Device> dev){
@@ -123,7 +180,7 @@
 		uint oneCoreOneDim = trunc(pow(oneCore/cores, 1.0/3.0)) + 1;
 		return cl::NDRange(oneCoreOneDim, oneCoreOneDim, oneCoreOneDim);
 	}
-
+#endif
 	
 #endif
 #ifdef __OPENCL_VERSION__

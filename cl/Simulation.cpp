@@ -38,6 +38,7 @@ namespace clDem{
 		return ret;
 	}
 	void Simulation::writeBufs(bool wait){
+		cerr<<"✎ ";
 		// make sure arrays are not empty
 		bboxes.resize(par.size()*6,NAN);
 		if(par.empty()) throw std::runtime_error("There must be some particles (now "+lexical_cast<string>(par.size())+").");
@@ -85,6 +86,7 @@ namespace clDem{
 	}
 
 	void Simulation::readBufs(bool wait){
+		cerr<<"∢ ";
 		readBuf(sceneBuf,scene);
 		// read arrays
 		readVecBuf(par,bufSize[_par]);
@@ -241,7 +243,7 @@ namespace clDem{
 			LOOP_DBG("{"<<SS.step<<"}");
 			// check interrupts here etc
 			if(SS.interrupt.step>=0){
-				LOOP_DBG(cerr<<"Interrupt: "<<(SS.interrupt.flags&INT_DESTRUCTIVE?"destructive":"non-destructive")<<", step="<<SS.interrupt.step<<", substep="<<SS.interrupt.substep<<", what="<<SS.interrupt.what);
+				LOOP_DBG(cerr<<"Interrupt: "<<(SS.interrupt.flags&INT_DESTRUCTIVE?"destructive":"non-destructive")<<", step="<<SS.interrupt.step<<", substep="<<SS.interrupt.substep<<", flags="<<SS.interrupt.flags);
 				// non-destructive interrupts: handle them and queue remaining kernels
 				if(!(SS.interrupt.flags & INT_DESTRUCTIVE)){
 					/*
@@ -250,7 +252,7 @@ namespace clDem{
 					2. operate on *scene* rather than the temporary *SS* (since *scene* is what writeBufs writes)
 					*/
 					readBufs(/*wait*/true);
-					if(SS.interrupt.flags & INT_BBOXES){ cerr<<"[C]"; cpuCollider->run(this); }
+					if(SS.interrupt.flags & INT_BBOXES){ cerr<<"©"; cpuCollider->run(this); }
 					else {
 						throw std::runtime_error("Unknown non-destructive interrupt: flags="+lexical_cast<string>(SS.interrupt.flags));
 					}
@@ -322,21 +324,22 @@ namespace clDem{
 				if(substepLast>=ki.substep) throw std::runtime_error("Kernel substep numbers are not an increasing sequence (error in kernel.cl.h)");
 				substepLast=ki.substep;
 				cl::Kernel k=makeKernel(ki.name);
-				switch(ki.argsType){
-					case KARGS_SINGLE: queue->enqueueTask(k); break;
-					#if 0
-						/* FIXME: this block is fast on nVidia's but makes no kernel being run on CPU (Intel SDK) */
-						case KARGS_PAR:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_par].size,device),makeLocal3DRange(bufSize[_par].size,device)); break;
-						case KARGS_CON:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_con].size,device),makeLocal3DRange(bufSize[_con].size,device)); break;
-						case KARGS_POT:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_pot].size,device),makeLocal3DRange(bufSize[_pot].size,device)); break;
-					#else
-						case KARGS_PAR:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_par].size,device),cl::NDRange()); break;
-						case KARGS_CON:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_con].size,device),cl::NDRange()); break;
-						case KARGS_POT:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_pot].size,device),cl::NDRange()); break;
-					#endif
-					// single-threaded run, as workaround for dead-lock in spinlock
-					case KARGS_CON_1: queue->enqueueNDRangeKernel(k,cl::NDRange(),makeLinear3DRange(bufSize[_con].size,device),cl::NDRange()); break;
-					default: throw std::runtime_error("Invalid KernelInfo.argsType value "+lexical_cast<string>(ki.argsType));
+				if(ki.argsType==KARGS_SINGLE){
+					queue->enqueueTask(k);
+				} else {
+					size_t linSize; bool onePerGroup=false;
+					switch(ki.argsType){
+						case KARGS_PAR: linSize=bufSize[_par].size; break;
+						case KARGS_CON: linSize=bufSize[_con].size; break;
+						case KARGS_POT: linSize=bufSize[_pot].size; break;
+						case KARGS_CON_1: linSize=bufSize[_con].size; onePerGroup=true; break;
+						default: throw std::logic_error("Invalid KernelInfo.argsType value "+lexical_cast<string>(ki.argsType));
+					}
+					cl::NDRange globND, locND;
+					// show info every showND steps, if positive
+					string log=(showND>0 && (scene.step+step)%showND==0)?lexical_cast<string>(scene.step+step)+"/"+lexical_cast<string>(ki.substep)+":":string("");
+					boost::tie(globND,locND)=makeGlobLocNDRanges(linSize,onePerGroup,*device,k,log);
+					queue->enqueueNDRangeKernel(k,cl::NDRange(),globND,locND);
 				}
 				LOOP_DBG("{"<<ki.name<<"}");
 			}

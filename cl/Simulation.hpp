@@ -45,10 +45,11 @@ namespace clDem{
 
 		string extraOpts;
 		int maxScheduledSteps;
+		int showND;
 
-		CLDEM_SERIALIZE_ATTRS((pNum)(dNum)/*binary*/(scene)(trackEnergy)(ktDivKn)(breakTension)(charLen)(collideGpu)(extraOpts)(maxScheduledSteps)/*other*/(par)(con)(conFree)(pot)(potFree)(cJournal)(clumps)(bboxes)(cpuCollider),/*otherCode*/);
+		CLDEM_SERIALIZE_ATTRS((pNum)(dNum)/*binary*/(scene)(trackEnergy)(ktDivKn)(breakTension)(charLen)(collideGpu)(extraOpts)(maxScheduledSteps)(showND)/*other*/(par)(con)(conFree)(pot)(potFree)(cJournal)(clumps)(bboxes)(cpuCollider),/*otherCode*/);
 
-		Simulation(int _pNum=-1,int _dNum=-1, bool _trackEnergy=false, Real _ktDivKn=NAN, bool _breakTension=false, Real _charLen=NAN, bool _collideGpu=false, const string& _opts=""): pNum(_pNum), dNum(_dNum), trackEnergy(_trackEnergy), ktDivKn(_ktDivKn), breakTension(_breakTension), charLen(_charLen), collideGpu(_collideGpu), extraOpts(_opts), maxScheduledSteps(-1) {}
+		Simulation(int _pNum=-1,int _dNum=-1, bool _trackEnergy=false, Real _ktDivKn=NAN, bool _breakTension=false, Real _charLen=NAN, bool _collideGpu=false, const string& _opts=""): pNum(_pNum), dNum(_dNum), trackEnergy(_trackEnergy), ktDivKn(_ktDivKn), breakTension(_breakTension), charLen(_charLen), collideGpu(_collideGpu), extraOpts(_opts), maxScheduledSteps(-1), showND(0) {}
 
 		void save(const string& s){ ObjectIO::save(s,"cldem",*this); }
 		void load(const string& s){ ObjectIO::load(s,"cldem",*this); }
@@ -124,6 +125,7 @@ void Simulation_hpp_expose(){
 		.PY_RWV(Simulation,cJournal)
 		.PY_RWV(Simulation,bboxes)
 		.PY_RW(Simulation,maxScheduledSteps)
+		.PY_RW(Simulation,showND)
 		.def_readonly("trackEnergy",&Simulation::trackEnergy)
 		.def_readonly("ktDivKn",&Simulation::ktDivKn)
 		.def_readonly("breakTension",&Simulation::breakTension)

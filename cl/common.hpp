@@ -9,6 +9,7 @@
 #include<boost/make_shared.hpp>
 using boost::shared_ptr;
 using boost::make_shared;
+#include<boost/tuple/tuple.hpp>
 
 #include<boost/python.hpp>
 namespace py=boost::python;
