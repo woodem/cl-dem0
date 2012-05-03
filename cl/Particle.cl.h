@@ -8,7 +8,7 @@ CLDEM_NAMESPACE_BEGIN();
 
 struct Sphere{
 	Real radius;
-	#ifdef __cplusplus
+	#ifdef GCC46
 		Sphere(): radius(NAN) {}
 	#endif
 	CLDEM_SERIALIZE_ATTRS((radius),/* */)
@@ -17,7 +17,7 @@ struct Sphere{
 struct Wall{
 	cl_short axis;
 	cl_short sense;
-	#ifdef __cplusplus
+	#ifdef GCC46
 		Wall(): axis(-1), sense(0){}
 	#endif
 	CLDEM_SERIALIZE_ATTRS((axis)(sense),/* */)
@@ -25,7 +25,7 @@ struct Wall{
 
 struct Clump{
 	cl_long ix; // index in the clumps array
-	#ifdef __cplusplus
+	#ifdef GCC46
 		Clump(): ix(-1){};
 	#endif
 	CLDEM_SERIALIZE_ATTRS((ix),/* */)
@@ -36,7 +36,7 @@ struct ClumpMember{
 	par_id_t id;
 	Vec3 relPos;
 	Quat relOri;
-	#ifdef __cplusplus
+	#ifdef GCC46
 		ClumpMember(): id(-1){}
 	#endif
 	CLDEM_SERIALIZE_ATTRS((id)(relPos)(relOri),/* */)

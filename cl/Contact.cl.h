@@ -10,7 +10,7 @@ struct L1Geom;
 void L1Geom_init(struct L1Geom*);
 struct L1Geom{
 	Real uN;
-#ifdef __cplusplus
+#ifdef GCC46
 	L1Geom(){ L1Geom_init(this); }
 #endif
 	CLDEM_SERIALIZE_ATTRS((uN),/**/)
@@ -23,9 +23,11 @@ inline void L1Geom_init(struct L1Geom* obj){
 struct L6Geom;
 void L6Geom_init(struct L6Geom*);
 struct L6Geom{
+#ifdef GCC46
 	Real uN; Vec3 vel; Vec3 angVel;
-#ifdef __cplusplus
 	L6Geom(){ L6Geom_init(this); }
+#else
+	Real uN; cl_double3 vel; cl_double3 angVel; /*avoid types with ctors*/
 #endif
 	CLDEM_SERIALIZE_ATTRS((uN)(vel)(angVel),/**/)
 };
@@ -40,7 +42,7 @@ struct NormPhys;
 void NormPhys_init(struct NormPhys*);
 struct NormPhys{
 	Real kN;
-	#ifdef __cplusplus
+	#ifdef GCC46
 		NormPhys(){ NormPhys_init(this); }
 	#endif
 	CLDEM_SERIALIZE_ATTRS((kN),/**/)
@@ -53,7 +55,7 @@ struct FrictPhys;
 void FrictPhys_init(struct FrictPhys*);
 struct FrictPhys{
 	Real kN, kT, tanPhi;
-	#ifdef __cplusplus
+	#ifdef GCC46
 		FrictPhys(){ FrictPhys_init(this); }
 	#endif
 	CLDEM_SERIALIZE_ATTRS((kN)(kT)(tanPhi),/**/)
@@ -191,12 +193,27 @@ namespace clDem{
 	}
 	template<int N>
 	par_id_t Contact_id_get(Contact *c){ return (N==0?c->ids.s0:c->ids.s1); }
+
+	#ifndef GCC46
+		static Vec3 L6Geom_vel_get(L6Geom* c){ return Vec3_set(c->vel.x,c->vel.y,c->vel.z);}
+		static void L6Geom_vel_set(L6Geom* c, Vec3 vel){ c->vel.x=vel[0]; c->vel.y=vel[1]; c->vel.z=vel[2]; }
+		static Vec3 L6Geom_angVel_get(L6Geom* c){ return Vec3_set(c->angVel.x,c->angVel.y,c->angVel.z);}
+		static void L6Geom_angVel_set(L6Geom* c, Vec3 angVel){ c->angVel.x=angVel[0]; c->angVel.y=angVel[1]; c->angVel.z=angVel[2]; }
+	#endif
 	
 	#ifndef YADE_CLDEM
 		static
 		void Contact_cl_h_expose(){
 			py::class_<L1Geom>("L1Geom").PY_RW(L1Geom,uN);
-			py::class_<L6Geom>("L6Geom").PY_RWV(L6Geom,uN).PY_RWV(L6Geom,vel).PY_RWV(L6Geom,angVel);
+			py::class_<L6Geom>("L6Geom").PY_RWV(L6Geom,uN)
+			#ifdef GCC46
+				.PY_RWV(L6Geom,vel).PY_RWV(L6Geom,angVel)
+			#else
+				.add_property("vel",L6Geom_vel_get,L6Geom_vel_set)
+				.add_property("angVel",L6Geom_angVel_get,L6Geom_angVel_set)
+			#endif
+			;
+
 			py::class_<NormPhys>("NormPhys").PY_RW(NormPhys,kN);
 			py::class_<FrictPhys>("FrictPhys").PY_RW(FrictPhys,kN).PY_RW(FrictPhys,kT).PY_RW(FrictPhys,tanPhi);
 

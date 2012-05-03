@@ -9,7 +9,7 @@ import pylab, itertools, random
 
 from yade import *
 
-dim=8,8,8
+dim=10,10,10
 genDim=4,4,4 # dim will be made by generating genDim and copying
 margin=0
 r=.01
@@ -42,6 +42,8 @@ sp=yade.pack.SpherePack()
 sp.makeCloud((0,0,0),2*r*Vector3(genDim),r,rRelFuzz=.5,periodic=True)
 sp.translate(2*r*Vector3.Ones)
 sp.cellRepeat([(dim[i]-2*margin)/genDim[i] for i in (0,1,2)])
+sp.save('/tmp/spheres-%d.txt'%len(sp))
+print 'saved to /tmp/spheres-%d.txt'%len(sp)
 for center,radius in sp:
 	sim.par.append(clDem.mkSphere(center,radius,sim,matId=0,groups=0b001,fixed=False))
 	sim.par[-1].vel=(0,0,-.05)

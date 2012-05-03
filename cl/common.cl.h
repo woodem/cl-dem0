@@ -7,6 +7,15 @@
 	#include"common.hpp"
 #endif
 
+// some things, such as unrestricted unions, don't work with gcc4.5
+#ifdef __cplusplus
+	#if __GNUC_MAJOR__>=4 && __GNUC_MINOR__>5
+		// define for gcc>=4.6
+		#define GCC46
+	#endif
+#endif
+
+
 // AMD does not align unions correctly, help it a bit here
 // the 128 is the biggest alignment (on cl_double16), which is very
 // wasteful
@@ -17,6 +26,7 @@
 
 #ifdef __OPENCL_VERSION__
 	#define static
+	typedef double3 cl_double3;
 	typedef short2 cl_short2;
 	typedef short cl_short;
 	typedef long2 cl_long2;

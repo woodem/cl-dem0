@@ -145,7 +145,12 @@ namespace clDem{
 			if(dNum>=(int)devices.size()){ std::cerr<<"Only "<<devices.size()<<" devices available, taking 0th device."<<std::endl; dNum=0; }
 			if(dNum<0) dNum=0;
 			device=make_shared<cl::Device>(devices[dNum]);
-			context=make_shared<cl::Context>(std::vector<cl::Device>({*device}));
+			#if BOOST_VERSION>=104600
+				context=make_shared<cl::Context>(std::vector<cl::Device>({*device}));
+			#else
+				std::vector<cl::Device> v; v.push_back(*device);
+				context=shared_ptr<cl::Context>(new cl::Context(v));
+			#endif
 			queue=make_shared<cl::CommandQueue>(*context,*device);
 			std::cerr<<"** OpenCL ready: platform \""<<platform->getInfo<CL_PLATFORM_NAME>()<<"\", device \""<<device->getInfo<CL_DEVICE_NAME>()<<"\"."<<std::endl;
 			program.reset(); // force recompilation at context change
@@ -161,7 +166,11 @@ namespace clDem{
 			const char* src="#include\"cl/kernels.cl.h\"\n\n\0";
 
 			cl::Program::Sources source(1,std::make_pair(src,std::string(src).size()));
-			program=make_shared<cl::Program>(*context,source);
+			#if BOOST_VERSION>=104600
+				program=make_shared<cl::Program>(*context,source);
+			#else
+				program=shared_ptr<cl::Program>(new cl::Program(*context,source));
+			#endif
 			try{
 				string opts2(opts+" -I.");
 				std::cerr<<"** compile with otions: "<<opts2<<endl;
@@ -188,7 +197,8 @@ namespace clDem{
 		/* if verletDist is negative, it is a fraction of the smallest spherical particle */
 		if(scene.verletDist<0){
 			Real minR=INFINITY;
-			for(const Particle& p: par){
+			//for(const Particle& p: par){
+			FOREACH(const Particle& p, par){
 				if(par_shapeT_get(&p)!=Shape_Sphere) continue;
 				minR=min(minR,p.shape.sphere.radius);
 			}
@@ -314,7 +324,8 @@ namespace clDem{
 				cl::Kernel k=makeKernel(ki.name);
 				switch(ki.argsType){
 					case KARGS_SINGLE: queue->enqueueTask(k); break;
-					#if 1
+					#if 0
+						/* FIXME: this block is fast on nVidia's but makes no kernel being run on CPU (Intel SDK) */
 						case KARGS_PAR:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_par].size,device),makeLocal3DRange(bufSize[_par].size,device)); break;
 						case KARGS_CON:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_con].size,device),makeLocal3DRange(bufSize[_con].size,device)); break;
 						case KARGS_POT:   queue->enqueueNDRangeKernel(k,cl::NDRange(),makeGlobal3DRange(bufSize[_pot].size,device),makeLocal3DRange(bufSize[_pot].size,device)); break;
@@ -420,8 +431,8 @@ namespace clDem{
 				//_NEW_FLOAT_ARR(absFt,1);
 				//_NEW_FLOAT_ARR(kT,1);
 				// particle positions are point between which contact lines are spanned
-				for(const Particle& p: par) parPos->InsertNextPoint(p.pos[0],p.pos[1],p.pos[2]);
-				for(const Contact& c: con){
+				FOREACH(const Particle& p, par) parPos->InsertNextPoint(p.pos[0],p.pos[1],p.pos[2]);
+				FOREACH(const Contact& c, con){
 					if(con_geomT_get(&c)==0) continue; // potential/deleted contact
 					auto line=vtkSmartPointer<vtkLine>::New();
 					line->GetPointIds()->SetId(0,c.ids.x);
@@ -467,7 +478,7 @@ py::tuple Simulation::addClump(const vector<Particle>& pp){
 	if(pp.empty()) throw std::runtime_error("Creating clump with zero particles");
 	vector<par_id_t> memberIds;
 	py::list memberIdsPy;
-	for(const Particle& p: pp){
+	FOREACH(const Particle& p, pp){
 		par.push_back(p);
 		memberIds.push_back(par.size()-1);
 		memberIdsPy.append(par.size()-1);
@@ -481,7 +492,7 @@ par_id_t Simulation::makeClumped(const vector<par_id_t>& memberIds){
 	Real M=0.;
 	Vector3r Sg=Vector3r::Zero();
 	Matrix3r Ig=Matrix3r::Zero();
-	for(const par_id_t& id: memberIds){
+	FOREACH(const par_id_t& id, memberIds){
 		const Particle& p(par[id]);
 		if(par_clumped_get(&p)) throw std::runtime_error("Particle is part of a clump already.");
 		if(par_shapeT_get(&p)==Shape_Clump) throw std::runtime_error("Particle being clumped is itself a clump (not allowed).");
@@ -517,7 +528,7 @@ par_id_t Simulation::makeClumped(const vector<par_id_t>& memberIds){
 
 	par_id_t clumpId=par.size();
  
-	for(const par_id_t& id: memberIds){
+	FOREACH(const par_id_t& id, memberIds){
 		Particle& p(par[id]);
 		par_clumped_set(&p,true);
 		p.clumpId=clumpId;

@@ -8,6 +8,8 @@
 
 #define COLL_GPU_DBG
 
+#define FOREACH123(var) for(int var=0;var<3;var++)
+
 namespace clDem{
 
 CpuCollider::ConLoc* CpuCollider::find(par_id_t id1, par_id_t id2){
@@ -155,7 +157,7 @@ void CpuCollider::initialStep(){
 	clearSimPot();
 
 	// copy bboxes to unsorted AxBound arrays
-	for(int ax:{0,1,2}){
+	FOREACH123(ax){ //for(int ax:{0,1,2}){
 		bounds[ax].resize(2*N);
 		for(size_t id=0; id<N; id++){
 			float mn=sim->bboxes[6*id+ax], mx=sim->bboxes[6*id+3+ax];
@@ -180,7 +182,7 @@ void CpuCollider::initialStep(){
 		initialSortGpu();
 	} else {
 		// sort initial bounds
-		for(int ax:{0,1,2}){
+		FOREACH123(ax){ //for(int ax:{0,1,2}){
 			std::sort(bounds[ax].begin(),bounds[ax].end());
 			// for(const auto& b: bounds[ax]) cerr<<ax<<" "<<b.id<<" "<<(b.isMin?"<-":"->")<<" "<<b.coord<<" "<<(b.isThin?"THIN":"")<<endl;
 		}
@@ -256,7 +258,7 @@ void CpuCollider::initialSortGpu(){
 		++bits;
 	}
 
-    for (int ax:{0, 1, 2}){
+   FOREACH123(ax){// for (int ax:{0,1,2}){
 		boundBufs[ax] = cl::Buffer(*sim->context, CL_MEM_READ_WRITE, powerOfTwo * sizeof (AxBound), NULL);
         bounds[ax].resize(powerOfTwo);
 		sim->queue->enqueueWriteBuffer(boundBufs[ax], CL_TRUE, 0, powerOfTwo * sizeof (AxBound), bounds[ax].data());
@@ -280,7 +282,7 @@ void CpuCollider::initialSortGpu(){
 		sortKernel.setArg(3, powerOfTwo);
 		sortKernel.setArg(4, 1);
 		
-		for (int ax:{0, 1, 2}){
+		FOREACH123(ax){ //for (int ax:{0, 1, 2}){
 			sortKernel.setArg(0, boundBufs[ax]);
 			for (cl_uint stage = 0; stage < bits; stage++) {
 				sortKernel.setArg(1, stage);
@@ -300,7 +302,7 @@ void CpuCollider::initialSortGpu(){
 	}
 	std::cout << "sort OK" << std::endl;
 
-	for (int ax:{0, 1, 2}){
+	FOREACH123(ax){ // for (int ax:{0, 1, 2}){
 		bounds[ax].resize(2*N);
 		sim->queue->enqueueReadBuffer(boundBufs[ax], CL_TRUE, 0, 2*N*sizeof (AxBound), bounds[ax].data());
 		boundBufs[ax] = cl::Buffer(*sim->context, CL_MEM_READ_WRITE, 2*N*sizeof (AxBound), NULL);
@@ -457,7 +459,8 @@ TODO: check array sizes before dereferencing their elements
 void CpuCollider::checkConsistency(){
 	// all contacts in cMap are in con/pot
 	for(long id1=0; id1<(long)cMap.size(); id1++){
-		for(const auto& id2_cl: cMap[id1]){
+		//for(const auto& id2_cl: cMap[id1]){
+		FOREACH(const auto& id2_cl, cMap[id1]){
 			const long& id2=id2_cl.first;
 			const ConLoc& cl=id2_cl.second;
 			par_id2_t s2=(cl.isReal?sim->con[cl.ix].ids:sim->pot[cl.ix]);
@@ -528,8 +531,9 @@ void CpuCollider::checkConsistency(){
 }
 
 void CpuCollider::updateBounds(){
-	for(int ax:{0,1,2}){
-		for(AxBound& ab: bounds[ax]){
+	FOREACH123(ax){ //for(int ax:{0,1,2}){
+		//for(AxBound& ab: bounds[ax]){
+		FOREACH(AxBound& ab, bounds[ax]){
 			ab.coord=sim->bboxes[6*ab.getId()+ax+(ab.isMin()?0:3)];
 			//ab.isThin=(sim->bboxes[6*ab.id+ax]==sim->bboxes[6*ab.id+ax+3]); // this is perhaps not needed anymore
 		}
@@ -539,7 +543,7 @@ void CpuCollider::updateBounds(){
 void CpuCollider::inversionsGpu(){
 	uint test = 0;
 	std::cout << "inversion on GPU" << std::endl;
-	for (int ax:{0, 1, 2}){
+	FOREACH123(ax){ //for (int ax:{0, 1, 2}){
 		//variables
 		cl_uint count = bounds[ax].size();
 		cl_uint counter = 0;
@@ -677,7 +681,7 @@ void CpuCollider::inversionsGpu(){
 }
 
 void CpuCollider::insertionSort(){
-	for(int ax:{0,1,2}){
+	FOREACH123(ax){ //for(int ax:{0,1,2}){
 		vector<AxBound>& bb(bounds[ax]);
 		long iMax=bb.size();
 		for(long i=0; i<iMax; i++){

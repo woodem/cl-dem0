@@ -33,7 +33,7 @@ namespace py=boost::python;
 template<typename containedType>
 struct custom_vector_to_list{
 	static PyObject* convert(const std::vector<containedType>& v){
-		py::list ret; for(const containedType& e: v) ret.append(e);
+		py::list ret; /*for(const containedType& e: v)*/ FOREACH(const containedType& e, v) ret.append(e);
 		return py::incref(ret.ptr());
 	}
 };;

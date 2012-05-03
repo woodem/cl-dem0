@@ -10,14 +10,14 @@ CLDEM_NAMESPACE_BEGIN();
 /* possibly we won't need different materials in one single simulation; stay general for now */
 struct ElastMat{
 	Real density, young; CLDEM_SERIALIZE_ATTRS((density)(young),/*otherCode*/)
-	#if __cplusplus
+	#if GCC46
 		ElastMat(): density(NAN), young(NAN){}
 	#endif
 };
 struct FrictMat{
 	Real density, young, ktDivKn, tanPhi;
 	; CLDEM_SERIALIZE_ATTRS((density)(young)(ktDivKn)(tanPhi),/*otherCode*/)
-	#if __cplusplus
+	#if GCC46
 		FrictMat(): density(NAN), young(NAN), ktDivKn(NAN), tanPhi(NAN) {}
 	#endif
 };
@@ -347,7 +347,7 @@ namespace clDem{
 	static
 	py::list Scene_mats_get(Scene* self){
 		py::list ret;
-		for(const Material& m: self->materials) ret.append(Material_mat_get(&m));
+		FOREACH(const Material& m, self->materials) ret.append(Material_mat_get(&m));
 		return ret;
 	}
 	static

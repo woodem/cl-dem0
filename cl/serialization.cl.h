@@ -40,12 +40,20 @@
 	BOOST_IS_BITWISE_SERIALIZABLE(cl_long2);
 	BOOST_CLASS_IMPLEMENTATION(cl_long2,boost::serialization::object_serializable);
 
+	BOOST_IS_BITWISE_SERIALIZABLE(cl_double4);
+	BOOST_CLASS_IMPLEMENTATION(cl_double4,boost::serialization::object_serializable);
+
 	namespace boost{ namespace serialization {
 
 	template<class Archive> void serialize(Archive &ar, cl_long2 &i, const unsigned version){
 		ar & make_nvp("x",i.x);
 		ar & make_nvp("y",i.y);
 	}
+	/* hack for gcc 4.5 */
+	template<class Archive> void serialize(Archive &ar, cl_double4& v, const unsigned version){ ar & boost::serialization::make_nvp("x",v.x); ar & boost::serialization::make_nvp("y",v.y); ar & boost::serialization::make_nvp("z",v.z); ar & boost::serialization::make_nvp("w",v.w); }
+	/* end hack */
+
+
 	}};
 
 #endif
