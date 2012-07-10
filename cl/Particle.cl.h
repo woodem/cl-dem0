@@ -210,8 +210,8 @@ namespace clDem{
 		}
 		else throw std::runtime_error("Unknown shape object.");
 	}
-	// not needed inside yade
-	#ifndef YADE_CLDEM
+	// not needed inside woo
+	#ifndef WOO_CLDEM
 		static
 		void Particle_cl_h_expose(){
 			py::class_<Sphere>("Sphere").PY_RW(Sphere,radius);

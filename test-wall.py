@@ -30,17 +30,17 @@ sim.run(1)
 #	print i,sim.getBbox(i)
 
 if 1:
-	from yade import *
-	import yade.cld
-	import yade.log
-	import yade.gl
-	#yade.log.setLevel('GLViewer',yade.log.TRACE)
-	O.scene.fields=[yade.cld.CLDemField(sim)]
+	from woo import *
+	import woo.cld
+	import woo.log
+	import woo.gl
+	#woo.log.setLevel('GLViewer',woo.log.TRACE)
+	O.scene.fields=[woo.cld.CLDemField(sim)]
 	nan=float('nan')
 	O.scene.loHint=O.scene.hiHint=(nan,nan,nan)
-	O.scene.engines=[yade.cld.CLDemRun(stepPeriod=10),]
-	O.scene.ranges=[yade.gl.Gl1_CLDemField.parRange]
-	yade.gl.Gl1_CLDemField.bboxes=False
+	O.scene.engines=[woo.cld.CLDemRun(stepPeriod=10),]
+	O.scene.ranges=[woo.gl.Gl1_CLDemField.parRange]
+	woo.gl.Gl1_CLDemField.bboxes=False
 
 
 

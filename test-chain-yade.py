@@ -31,34 +31,34 @@ for i in range(0,N):
 
 sim.scene.dt=dtFrac*sim.pWaveDt()
 
-def yadeCopy():
+def wooCopy():
 	import _clDem
-	import yade.utils
-	demField=yade.dem.DemField()
-	clField=yade.cld.CLDemField(sim)
-	yade.O.scene=yade.core.Scene() # reinitialize everything
-	yade.O.scene.fields=[demField,clField]
+	import woo.utils
+	demField=woo.dem.DemField()
+	clField=woo.cld.CLDemField(sim)
+	woo.O.scene=woo.core.Scene() # reinitialize everything
+	woo.O.scene.fields=[demField,clField]
 	# copy materials
-	yadeMat=[]
+	wooMat=[]
 	for m in sim.scene.materials:
 		if isinstance(m,_clDem.ElastMat):
-			yadeMat.append(yade.dem.FrictMat(young=m.young,density=m.density,tanPhi=float('inf'),poisson=float('nan')))
-		else: yadeMat.append(None)
+			wooMat.append(woo.dem.FrictMat(young=m.young,density=m.density,tanPhi=float('inf'),poisson=float('nan')))
+		else: wooMat.append(None)
 	# copy particles
 	for p in sim.par:
 		if isinstance(p.shape,_clDem.Sphere):
-			yade.O.dem.par.append(yade.utils.sphere(p.pos,p.shape.radius,material=yadeMat[p.matId],fixed=(p.dofs==0),color=.5 if p.dofs==0 else .3,wire=True))
+			woo.O.dem.par.append(woo.utils.sphere(p.pos,p.shape.radius,material=wooMat[p.matId],fixed=(p.dofs==0),color=.5 if p.dofs==0 else .3,wire=True))
 		elif isinstance(p.shape,_clDem.Wall):
-			yade.O.dem.par.append(yade.utils.wall(p.pos,p.shape.axis,material=yadeMat[p.matId],fixed=(p.dofs==0),color=.5 if p.dofs==0 else .3,wire=True))
-	yade.O.dem.collectNodes()
-	yade.O.scene.dt=sim.scene.dt
-	yade.O.scene.trackEnergy=True
-	yade.O.scene.engines=[
-		yade.dem.Gravity(gravity=(sim.scene.gravity)),
-		yade.dem.Leapfrog(damping=sim.scene.damping,reset=True,kinSplit=True),
-		yade.dem.InsertionSortCollider([yade.dem.Bo1_Sphere_Aabb(),yade.dem.Bo1_Wall_Aabb(),yade.dem.Bo1_Facet_Aabb()]),
-		yade.dem.ContactLoop([yade.dem.Cg2_Sphere_Sphere_L6Geom(),yade.dem.Cg2_Wall_Sphere_L6Geom(),yade.dem.Cg2_Facet_Sphere_L6Geom()],[yade.dem.Cp2_FrictMat_FrictPhys(ktDivKn=ktDivKn)],[yade.dem.Law2_L6Geom_FrictPhys_LinEl6(charLen=float('inf') if (useL1Geom or not charLen) else charLen)],applyForces=True),
-		yade.cld.CLDemRun(stepPeriod=1,compare=True,relTol=1e-5,raiseLimit=10.),
+			woo.O.dem.par.append(woo.utils.wall(p.pos,p.shape.axis,material=wooMat[p.matId],fixed=(p.dofs==0),color=.5 if p.dofs==0 else .3,wire=True))
+	woo.O.dem.collectNodes()
+	woo.O.scene.dt=sim.scene.dt
+	woo.O.scene.trackEnergy=True
+	woo.O.scene.engines=[
+		woo.dem.Gravity(gravity=(sim.scene.gravity)),
+		woo.dem.Leapfrog(damping=sim.scene.damping,reset=True,kinSplit=True),
+		woo.dem.InsertionSortCollider([woo.dem.Bo1_Sphere_Aabb(),woo.dem.Bo1_Wall_Aabb(),woo.dem.Bo1_Facet_Aabb()]),
+		woo.dem.ContactLoop([woo.dem.Cg2_Sphere_Sphere_L6Geom(),woo.dem.Cg2_Wall_Sphere_L6Geom(),woo.dem.Cg2_Facet_Sphere_L6Geom()],[woo.dem.Cp2_FrictMat_FrictPhys(ktDivKn=ktDivKn)],[woo.dem.Law2_L6Geom_FrictPhys_LinEl6(charLen=float('inf') if (useL1Geom or not charLen) else charLen)],applyForces=True),
+		woo.cld.CLDemRun(stepPeriod=1,compare=True,relTol=1e-5,raiseLimit=10.),
 	]
 
 def showEnergies():
@@ -71,12 +71,12 @@ def showEnergies():
 		print '\t%10s %15s / %15s'%(g,gg,cc)
 
 # inspect XML files to see that they are identical
-yade.O.scene=yade.cld.CLDemRun.clDemToYade(sim,1,relTol=1e-5)
+woo.O.scene=woo.cld.CLDemRun.clDemToYade(sim,1,relTol=1e-5)
 O.save('/tmp/a1.xml')
-yadeCopy() # this sets O.scene inside
+wooCopy() # this sets O.scene inside
 O.save('/tmp/a2.xml')
 
 
-yade.qt.View()
-yade.qt.Renderer().bound=True
-yade.qt.Controller()
+woo.qt.View()
+woo.qt.Renderer().bound=True
+woo.qt.Controller()

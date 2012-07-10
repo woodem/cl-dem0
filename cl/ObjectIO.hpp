@@ -1,4 +1,4 @@
-// copied directly from yade
+// copied directly from woo
 
 // 2010 ©  Václav Šmilauer <eudoxos@arcig.cz>
 

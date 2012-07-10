@@ -7,7 +7,7 @@ from miniEigen import *
 from math import *
 import pylab, itertools, random
 
-import yade.core
+import woo.core
 
 sim=clDem.Simulation(breakTension=True)
 
@@ -31,16 +31,16 @@ for i,cc in enumerate(coords):
 sim.par.append(clDem.mkWall(pos=(0,0,-1.3),axis=2,sim=sim,matId=0,groups=0b011))
 
 # visualization
-#O.scene.fields=[yade.cld.CLDemField(sim)]
-#O.scene.engines=[yade.cld.CLDemRun(stepPeriod=1),]
+#O.scene.fields=[woo.cld.CLDemField(sim)]
+#O.scene.engines=[woo.cld.CLDemRun(stepPeriod=1),]
 
-O.scene=yade.cld.CLDemField.clDemToYade(sim,stepPeriod=1,relTol=-1e-5)
+O.scene=woo.cld.CLDemField.clDemToYade(sim,stepPeriod=1,relTol=-1e-5)
 #print O.scene.engines[-1].raiseLimit
 #O.scene.engines[-1].raiseLimit=1e11
-#O.scene.engines=O.scene.engines+[yade.core.PyRunner('import yade; sim=yade.O.scene.fields[-1].sim; print yade.O.dem.par[1].pos,sim.par[1].pos')]
+#O.scene.engines=O.scene.engines+[woo.core.PyRunner('import woo; sim=woo.O.scene.fields[-1].sim; print woo.O.dem.par[1].pos,sim.par[1].pos')]
 #globals()['sim']=sim
 
-from yade import qt
+from woo import qt
 qt.View()
 O.run(60,True)
 O.saveTmp()

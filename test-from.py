@@ -4,7 +4,7 @@ import clDem
 
 from miniEigen import *
 
-from yade import utils
+from woo import utils
 m=utils.defaultMaterial()
 O.dem.par.append([
 	utils.wall((0,0,0),axis=2,material=m,fixed=True),
@@ -15,8 +15,8 @@ O.dem.par[-1].angVel=(0,1,0)
 # O.dem.par[-1].material.tanPhi=0. # no friction
 O.scene.dt=.003*utils.pWaveDt()
 O.scene.trackEnergy=True
-from yade.dem import *
-from yade.core import*
+from woo.dem import *
+from woo.core import*
 O.scene.engines=[
 	#PyRunner('if len(O.dem.con)>0 and O.dem.con[0].real: O.pause()'),
 	Gravity(gravity=(0,0,-10)),
@@ -24,17 +24,17 @@ O.scene.engines=[
 	InsertionSortCollider([Bo1_Sphere_Aabb(),Bo1_Wall_Aabb()]),
 	ContactLoop([Cg2_Sphere_Sphere_L6Geom(),Cg2_Wall_Sphere_L6Geom()],[Cp2_FrictMat_FrictPhys()],[Law2_L6Geom_FrictPhys_IdealElPl()],applyForces=True),
 ]
-import yade.qt
-yade.qt.View()
+import woo.qt
+woo.qt.View()
 
 O.scene.clDev=(1,0) # intel
-sim=yade.cld.CLDemField.yadeToClDem(O.scene,stepPeriod=1,relTol=-1)
+sim=woo.cld.CLDemField.wooToClDem(O.scene,stepPeriod=1,relTol=-1)
 
 #O.scene.engines[-1].raiseLimit=1e4
 
-#from yade import plot
+#from woo import plot
 #plot.plots=
-yade.gl.Gl1_CLDemField.parWire=True
+woo.gl.Gl1_CLDemField.parWire=True
 
 O.saveTmp()
 

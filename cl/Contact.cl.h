@@ -201,7 +201,7 @@ namespace clDem{
 		static void L6Geom_angVel_set(L6Geom* c, Vec3 angVel){ c->angVel.x=angVel[0]; c->angVel.y=angVel[1]; c->angVel.z=angVel[2]; }
 	#endif
 	
-	#ifndef YADE_CLDEM
+	#ifndef WOO_CLDEM
 		static
 		void Contact_cl_h_expose(){
 			py::class_<L1Geom>("L1Geom").PY_RW(L1Geom,uN);

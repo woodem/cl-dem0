@@ -20,8 +20,8 @@ namespace py=boost::python;
 #define PY_RWV(clss,attr) add_property(BOOST_PP_STRINGIZE(attr),/*read access*/py::make_getter(&clss::attr,py::return_value_policy<py::return_by_value>()),/*write access*/make_setter(&clss::attr,py::return_value_policy<py::return_by_value>()))
 #define PY_RW(clss,attr) def_readwrite(BOOST_PP_STRINGIZE(attr),&clss::attr)
 
-// when included from yade, this is already in the yade's header
-#if BOOST_VERSION<=104900 && !defined(YADE_CLDEM)
+// when included from woo, this is already in the woo's header
+#if BOOST_VERSION<=104900 && !defined(WOO_CLDEM)
 	// workaround for Contact alignment issues http://thread.gmane.org/gmane.comp.python.c++/15639
 	// it was fixed in the SVN http://svn.boost.org/svn/boost/trunk/boost/type_traits/type_with_alignment.hpp
 	// before boost 1.50

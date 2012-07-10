@@ -387,7 +387,7 @@ namespace clDem{
 		ret["bboxes"]=(bool)(s->interrupt.flags&INT_BBOXES);
 		return ret;
 	}
-	#ifndef YADE_CLDEM
+	#ifndef WOO_CLDEM
 		static
 		void Scene_cl_h_expose(){
 			VECTOR_SEQ_CONV(Material);

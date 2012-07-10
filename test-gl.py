@@ -7,7 +7,7 @@ from miniEigen import *
 from math import *
 import pylab, itertools, random
 
-from yade import *
+from woo import *
 
 dim=10,10,10
 genDim=4,4,4 # dim will be made by generating genDim and copying
@@ -37,8 +37,8 @@ else:
 sim.scene.loneGroups=0b010
 #sim.collideGpu = True
 
-import yade.pack
-sp=yade.pack.SpherePack()
+import woo.pack
+sp=woo.pack.SpherePack()
 sp.makeCloud((0,0,0),2*r*Vector3(genDim),r,rRelFuzz=.5,periodic=True)
 sp.translate(2*r*Vector3.Ones)
 sp.cellRepeat([(dim[i]-2*margin)/genDim[i] for i in (0,1,2)])
@@ -49,22 +49,22 @@ for center,radius in sp:
 	sim.par[-1].vel=(0,0,-.05)
 
 
-from yade import *
-import yade.cld
-import yade.log
-import yade.gl
-from yade import timing
+from woo import *
+import woo.cld
+import woo.log
+import woo.gl
+from woo import timing
 if 1: # run on both
-	O.scene=yade.cld.CLDemField.clDemToYade(sim,stepPeriod=20,relTol=-1e-5)
+	O.scene=woo.cld.CLDemField.clDemToYade(sim,stepPeriod=20,relTol=-1e-5)
 	#O.timingEnabled=True
 	# remove last engine and the clDem field
 	#O.scene.engines=O.scene.engines[0:-1]
 	#O.scene.fields=[O.scene.fields[0]]
 else: # run via OpenCL only
-	O.scene.fields=[yade.cld.CLDemField(sim)]
-	O.scene.engines=[yade.cld.CLDemRun(stepPeriod=1),]
-#O.scene.ranges=[yade.gl.Gl1_CLDemField.parRange]
-yade.gl.Gl1_CLDemField.bboxes=False
+	O.scene.fields=[woo.cld.CLDemField(sim)]
+	O.scene.engines=[woo.cld.CLDemRun(stepPeriod=1),]
+#O.scene.ranges=[woo.gl.Gl1_CLDemField.parRange]
+woo.gl.Gl1_CLDemField.bboxes=False
 
 O.saveTmp()
 #O.timingEnabled=True

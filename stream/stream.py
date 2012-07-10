@@ -23,21 +23,21 @@ sim.scene.damping=.4
 sim.scene.verletDist=-.3 # negative means relative to minimum sphere size
 sim.scene.loneGroups=0b010  # no contacts of walls with themselves
 
-sim.showND=20 # show NDRange for all kernels every 20 steps
+sim.showND=0 # show NDRange for all kernels every 20 steps; set to 0 to disable
 
 # maximum number of enqueued steps (times 7 kernels/step), before returning back to CPU
 sim.maxScheduledSteps=100
 
 if 1:
-	sim.run(10000)
+	sim.run(2000)
 	print 'Done at step %d, bye.'%sim.scene.step
-# show inside yade, for visualization
+# show inside woo, for visualization
 else:
-	from yade import *
-	import yade.cld
-	import yade.gl
-	O.scene.fields=[yade.cld.CLDemField(sim)]
-	O.scene.engines=[yade.cld.CLDemRun(stepPeriod=40),]
-	O.scene.ranges=[yade.gl.Gl1_CLDemField.parRange]
-	yade.gl.Gl1_CLDemField.bboxes=False
+	from woo import *
+	import woo.cld
+	import woo.gl
+	O.scene.fields=[woo.cld.CLDemField(sim)]
+	O.scene.engines=[woo.cld.CLDemRun(stepPeriod=40),]
+	O.scene.ranges=[woo.gl.Gl1_CLDemField.parRange]
+	woo.gl.Gl1_CLDemField.bboxes=False
 

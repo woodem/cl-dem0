@@ -122,7 +122,7 @@ namespace clDem{
 
 	void Simulation::initCl(){
 		// if there is no queue, create it
-		// note that context can be set externally (from yade after loading, for instance)
+		// note that context can be set externally (from woo after loading, for instance)
 		if(!queue){
 			assert(!context);
 			std::vector<cl::Platform> platforms;
@@ -186,6 +186,8 @@ namespace clDem{
 			//if(!log.empty()) std::cerr<<log<<std::endl;
 			std::cerr<<"** Program compiled.\n";
 		}
+		cerr<<"sizeof(Particle)="<<sizeof(Particle)<<endl;
+		cerr<<"sizeof(Contact)="<<sizeof(Contact)<<endl;
 	};
 	//#define LOOP_DBG(a) std::cerr<<a<<std::endl;
 	#define LOOP_DBG(a)

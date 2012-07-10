@@ -9,8 +9,8 @@
 #include"Scene.cl.h"
 #include"Collider.cl.h"
 
-// if included from yade
-#ifdef YADE_VTK
+// if included from woo
+#ifdef WOO_VTK
 	#define CLDEM_VTK
 #endif
 
@@ -97,7 +97,9 @@ namespace clDem{
 		void run(int nSteps);
 		Real pWaveDt();
 		py::tuple getBbox(par_id_t id);
-		py::list saveVtk(string prefix, bool compress=true, bool ascii=false);
+		#ifdef CLDEM_VTK
+			py::list saveVtk(string prefix, bool compress=true, bool ascii=false);
+		#endif
 		py::tuple addClump(const vector<Particle>&);
 		par_id_t makeClumped(const vector<par_id_t>&);
 

@@ -28,16 +28,16 @@ for n,m in itertools.product(range(0,N),range(0,M)): # m advances the fastest
 	if n>0: sim.con.append(clDem.Contact(ids=(pid,pid-M))) # contact below
 	if m>0: sim.con.append(clDem.Contact(ids=(pid,pid-1))) # contact left
 
-yade.O.scene.dt=sim.scene.dt=.2*sim.pWaveDt();
+woo.O.scene.dt=sim.scene.dt=.2*sim.pWaveDt();
 
-import yade.cld
-yade.gl.Gl1_CLDemField.parRange.label='|v|'
-yade.gl.Gl1_CLDemField.conRange.label='Fn'
+import woo.cld
+woo.gl.Gl1_CLDemField.parRange.label='|v|'
+woo.gl.Gl1_CLDemField.conRange.label='Fn'
 
 O.timingEnabled=True
-import yade.cld
-yade.O.scene=yade.cld.CLDemRun.clDemToYade(sim,stepPeriod=1,relTol=-1e-3)
-O.scene.ranges=[yade.gl.Gl1_CLDemField.parRange,yade.gl.Gl1_CLDemField.conRange]
+import woo.cld
+woo.O.scene=woo.cld.CLDemRun.clDemToYade(sim,stepPeriod=1,relTol=-1e-3)
+O.scene.ranges=[woo.gl.Gl1_CLDemField.parRange,woo.gl.Gl1_CLDemField.conRange]
 
 
 #for i in range(0,300):

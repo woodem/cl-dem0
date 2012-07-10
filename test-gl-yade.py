@@ -1,12 +1,12 @@
 # encoding: utf-8
 import sys
 
-from yade import *
-import yade.log
-import yade.gl
-from yade import utils, timing
-from yade.dem import *
-from yade.core import *
+from woo import *
+import woo.log
+import woo.gl
+from woo import utils, timing
+from woo.dem import *
+from woo.core import *
 
 from miniEigen import *
 from math import *
@@ -21,8 +21,8 @@ ktDivKn=.2
 
 m=FrictMat(young=1e6,density=1e3,tanPhi=0)
 
-import yade.pack
-sp=yade.pack.SpherePack()
+import woo.pack
+sp=woo.pack.SpherePack()
 sp.makeCloud((2*r*margin,2*r*margin,2*r),((dim[0]-margin)*2*r,(dim[1]-margin)*2*r,dim[2]*2*r),r,rRelFuzz=.5)
 sp.toSimulation(material=m)
 for p in O.dem.par: p.vel=(0,0,-.05)
@@ -77,8 +77,8 @@ if 1:
 		#for x0,x1 in itertools.product(range(0,dim[0]),range(0,dim[1])):
 		#	sim.par.append(clDem.mkSphere((x0*2*r,x1*2*r,0),r,sim,matId=0,groups=0b011,fixed=True))
 
-		import yade.pack
-		sp=yade.pack.SpherePack()
+		import woo.pack
+		sp=woo.pack.SpherePack()
 		sp.makeCloud((2*r*margin,2*r*margin,2*r),((dim[0]-margin)*2*r,(dim[1]-margin)*2*r,dim[2]*2*r),r,rRelFuzz=.5)
 		for center,radius in sp:
 			sim.par.append(clDem.mkSphere(center,radius,sim,matId=0,groups=0b001,fixed=False))

@@ -182,7 +182,7 @@ kernel void integrator_P(KERNEL_ARGUMENT_LIST1){
 	}
 
 	/* only add energy if at least some dofs are free */
-	// this estimates velocity at next on-step using current accel; it follows how yade computes it currently
+	// this estimates velocity at next on-step using current accel; it follows how woo computes it currently
 	if(dofs&par_dofs_trans) ADD_ENERGY(scene,Ekt,.5*pp.mass*Vec3_sqNorm(pp.vel+.5*dt*accel));
 	// valid only for spherical particles (fix later)
 	if(dofs&par_dofs_rot)   ADD_ENERGY(scene,Ekr,.5*dot(pp.inertia*(pp.angVel+.5*dt*angAccel),pp.angVel+.5*dt*angAccel));

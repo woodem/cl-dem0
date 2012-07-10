@@ -21,6 +21,6 @@ sim.scene.dt=-.01
 sim.par.append(clDem.mkSphere((0,0,0),.005,sim,matId=0,fixed=True))
 sim.par.append(clDem.mkSphere((0,0,.015),.005,sim,matId=0,fixed=False))
 
-import yade.cld
-yade.O.scene=yade.cld.CLDemRun.clDemToYade(sim,stepPeriod=1,relTol=1e-8)
+import woo.cld
+woo.O.scene=woo.cld.CLDemRun.clDemToYade(sim,stepPeriod=1,relTol=1e-8)
 #pylab.plot(zCoord,label='z-coord'); pylab.legend(loc='lower left'); pylab.twinx(); pylab.plot(f1z,c='red',label='F1z'); pylab.legend(); pylab.show()
