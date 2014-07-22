@@ -229,7 +229,7 @@ namespace clDem{
 				.add_property("id2",Contact_id_get<1>)
 			;
 			// to-python from [...]
-			custom_vector_from_seq<Contact>();
+			_custom_vector_from_seq<Contact>();
 			// from-python as ContactList proxy
 			py::class_<std::vector<Contact>>("ContactList").def(py::vector_indexing_suite<std::vector<Contact>>());
 		};

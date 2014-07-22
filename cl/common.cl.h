@@ -39,7 +39,8 @@
 	#elif defined(cl_amd_printf)
 		#pragma OPENCL EXTENSION cl_amd_printf: enable
 	#else
-		#define printf(...)
+		// hope for the best anyway
+		// #define printf()
 	#endif
 	//#ifdef cl_khr_global_int32_base_atomics
 		#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable

@@ -429,6 +429,8 @@ void CpuCollider::replayJournal(){
 			case CJOURNAL_POT2CON:
 				if(cl->isReal) throw std::runtime_error("Journal: making already real "+cStr+" real");
 				cl->ix=J.index;
+				// // fake increment, but the next run of the kernel will do just that
+				// scene->arrSize[ARR_CON]++;
 				cl->isReal=true;
 				break;
 			case CJOURNAL_CON2POT:

@@ -17,6 +17,9 @@
 	#include<vtkXMLPolyDataWriter.h>
 #endif
 
+#include<boost/filesystem/operations.hpp>
+#include<ctime>
+
 
 namespace clDem{
 	template<typename T>
@@ -115,6 +118,7 @@ namespace clDem{
 		k.setArg(9,scene.arrSize[ARR_PAR]);
 		//	std::cout << "argK" << std::endl;
 		k.setArg(10,scene.arrSize[ARR_CON]);
+		// std::cout << "conCount=" <<scene.arrSize[ARR_CON]<<std::endl;
 		k.setArg(11,scene.arrSize[ARR_POT]);
 		k.setArg(12,scene.dt);
 		return k;
@@ -165,9 +169,11 @@ namespace clDem{
 			if(breakTension) opts+=" -DL6GEOM_BREAK_TENSION";
 			if(!isnan(charLen)) opts+=" -DBEND_CHARLEN="+lexical_cast<string>(charLen);
 
-			const char* src="#include\"cl/kernels.cl.h\"\n\n\0";
+			std::string srcfile="cl/kernels.cl.h";
+			std::time_t stamp=boost::filesystem::last_write_time(boost::filesystem::path(srcfile));
+			std::string src("#include\""+srcfile+"\" /* "+std::to_string(stamp)+" */\n\n");
 
-			cl::Program::Sources source(1,std::make_pair(src,std::string(src).size()));
+			cl::Program::Sources source(1,std::make_pair(src.c_str(),src.size()));
 			#if BOOST_VERSION>=104600
 				program=make_shared<cl::Program>(*context,source);
 			#else
@@ -175,6 +181,7 @@ namespace clDem{
 			#endif
 			try{
 				string opts2(opts+" -I.");
+				std::cerr<<"** the source is: "<<src<<endl;
 				std::cerr<<"** compile with otions: "<<opts2<<endl;
 				program->build(std::vector<cl::Device>({*device}),opts2.c_str(),NULL,NULL);
 			}catch(cl::Error& e){
@@ -278,26 +285,34 @@ namespace clDem{
 						assert(SS.arrAlloc[ARR_POTFREE]==potFree.size());
 						assert(SS.arrAlloc[ARR_CJOURNAL]==cJournal.size());
 						if(SS.arrAlloc[ARR_CON]<SS.arrSize[ARR_CON]){
+							//cerr<<"@@"<<arrNewSize(SS,ARR_CON)<<endl;
 							con.resize(arrNewSize(SS,ARR_CON));
+							scene.arrAlloc[ARR_CON]=con.size();
+							//cerr<<"@@"<<arrNewSize(SS,ARR_CON)<<", "<<con.size()<<", "<<scene.arrSize[ARR_CON]<<endl;
 						}
 						if(SS.arrAlloc[ARR_CONFREE]<SS.arrSize[ARR_CONFREE]){
 							conFree.resize(arrNewSize(SS,ARR_CONFREE),-1);
+							scene.arrAlloc[ARR_CONFREE]=conFree.size();
 						}
 						if(SS.arrAlloc[ARR_POT]<SS.arrSize[ARR_POT]){
 							par_id2_t no2={-1,-1};
 							pot.resize(arrNewSize(SS,ARR_POT),no2);
+							scene.arrAlloc[ARR_POT]=pot.size();
 						}
 						if(SS.arrAlloc[ARR_POTFREE]<SS.arrSize[ARR_POTFREE]){
 							potFree.resize(arrNewSize(SS,ARR_POTFREE),-1);
+							scene.arrAlloc[ARR_POTFREE]=potFree.size();
 						}
 						if(SS.arrAlloc[ARR_CJOURNAL]<SS.arrSize[ARR_CJOURNAL]){
 							cJournal.resize(arrNewSize(SS,ARR_CJOURNAL));
+							scene.arrAlloc[ARR_CJOURNAL]=cJournal.size();
 						}
 					} else {
 						throw std::runtime_error("Unknown destructive interrupt: flags="+lexical_cast<string>(SS.interrupt.flags));
 					}
 					if(SS.rollback>=rollbacksMax) throw std::runtime_error("Too many rollbacks ("+lexical_cast<string>(SS.rollback)+"), giving up.");
 					cerr<<"Rollback no. "<<SS.rollback+1<<" to step "<<scene.step<<" / "<<substepStart<<endl;
+					cerr<<"con.size()="<<con.size()<<endl;
 					//
 					nSteps=goalStep-scene.step;
 					scene.rollback=SS.rollback+1;

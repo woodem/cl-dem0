@@ -236,7 +236,7 @@ namespace clDem{
 			;
 
 			// from-python as list
-			custom_vector_from_seq<Particle>();
+			_custom_vector_from_seq<Particle>();
 			// to-python as ParticleList proxy
 			py::class_<std::vector<Particle>>("ParticleList").def(py::vector_indexing_suite<std::vector<Particle>>());
 		}

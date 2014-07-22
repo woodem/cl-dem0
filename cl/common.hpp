@@ -1,7 +1,7 @@
 #pragma once
 
 #define __CL_ENABLE_EXCEPTIONS
-#include"cl.hpp"
+#include<CL/cl.hpp>
 
 #include"serialization.cl.h"
 
@@ -20,22 +20,25 @@ namespace py=boost::python;
 #define PY_RWV(clss,attr) add_property(BOOST_PP_STRINGIZE(attr),/*read access*/py::make_getter(&clss::attr,py::return_value_policy<py::return_by_value>()),/*write access*/make_setter(&clss::attr,py::return_value_policy<py::return_by_value>()))
 #define PY_RW(clss,attr) def_readwrite(BOOST_PP_STRINGIZE(attr),&clss::attr)
 
-// when included from woo, this is already in the woo's header
-#if BOOST_VERSION<=104900 && !defined(WOO_CLDEM)
-	// workaround for Contact alignment issues http://thread.gmane.org/gmane.comp.python.c++/15639
-	// it was fixed in the SVN http://svn.boost.org/svn/boost/trunk/boost/type_traits/type_with_alignment.hpp
-	// before boost 1.50
-	namespace boost {
-		namespace align { struct __attribute__((__aligned__(128))) a128 {};}
-		template<> class type_with_alignment<128> { public: typedef align::a128 type; };
-	};
+// this is no longer needed
+#if 0
+	// when included from woo, this is already in the woo's header
+	#if BOOST_VERSION<=104900 && !defined(WOO_CLDEM)
+		// workaround for Contact alignment issues http://thread.gmane.org/gmane.comp.python.c++/15639
+		// it was fixed in the SVN http://svn.boost.org/svn/boost/trunk/boost/type_traits/type_with_alignment.hpp
+		// before boost 1.50
+		namespace boost {
+			namespace align { struct __attribute__((__aligned__(128))) a128 {};}
+			template<> class type_with_alignment<128> { public: typedef align::a128 type; };
+		};
+#endif
 #endif
 
-/* self-stolen from Yade */
+/* self-stolen from Woo; add leading underscore to avoid name conflict */
 
 /*** c++-list to python-list */
 template<typename containedType>
-struct custom_vector_to_list{
+struct _custom_vector_to_list{
 	static PyObject* convert(const std::vector<containedType>& v){
 		py::list ret; /*for(const containedType& e: v)*/ FOREACH(const containedType& e, v) ret.append(e);
 		return py::incref(ret.ptr());
@@ -43,8 +46,8 @@ struct custom_vector_to_list{
 };;
 
 template<typename containedType>
-struct custom_vector_from_seq{
-	custom_vector_from_seq(){ py::converter::registry::push_back(&convertible,&construct,py::type_id<std::vector<containedType> >()); }
+struct _custom_vector_from_seq{
+	_custom_vector_from_seq(){ py::converter::registry::push_back(&convertible,&construct,py::type_id<std::vector<containedType> >()); }
 	static void* convertible(PyObject* obj_ptr){
 		// the second condition is important, for some reason otherwise there were attempted conversions of Body to list which failed afterwards.
 		if(!PySequence_Check(obj_ptr) || !PyObject_HasAttrString(obj_ptr,"__len__")) return 0;
@@ -59,7 +62,7 @@ struct custom_vector_from_seq{
 	}
 };
 
-#define VECTOR_SEQ_CONV(Type) custom_vector_from_seq<Type>();  py::to_python_converter<std::vector<Type>, custom_vector_to_list<Type> >();
+#define VECTOR_SEQ_CONV(Type) _custom_vector_from_seq<Type>();  py::to_python_converter<std::vector<Type>, _custom_vector_to_list<Type> >();
 
 
 

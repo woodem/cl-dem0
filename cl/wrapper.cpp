@@ -68,7 +68,7 @@ BOOST_PYTHON_MODULE(_clDem){
 	if(!py::converter::registry::query(py::type_info(typeid(vector<int>)))){ VECTOR_SEQ_CONV(int); }
 
 	py::class_<std::vector<cl_float>>("FloatList").def(py::vector_indexing_suite<std::vector<cl_float>>());
-	custom_vector_from_seq<cl_float>();
+	_custom_vector_from_seq<cl_float>();
 
 	Particle_cl_h_expose();
 	Contact_cl_h_expose();

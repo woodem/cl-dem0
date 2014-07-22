@@ -3,7 +3,7 @@ import sys
 sys.path.append('.')
 import clDem
 
-from miniEigen import *
+from minieigen import *
 from math import *
 import pylab, itertools, random
 
@@ -34,7 +34,7 @@ sim.par.append(clDem.mkWall(pos=(0,0,-1.3),axis=2,sim=sim,matId=0,groups=0b011))
 #O.scene.fields=[woo.cld.CLDemField(sim)]
 #O.scene.engines=[woo.cld.CLDemRun(stepPeriod=1),]
 
-O.scene=woo.cld.CLDemField.clDemToYade(sim,stepPeriod=1,relTol=-1e-5)
+S=woo.master.scene=woo.cld.CLDemField.clDemToWoo(sim,stepPeriod=1,relTol=-1e-5)
 #print O.scene.engines[-1].raiseLimit
 #O.scene.engines[-1].raiseLimit=1e11
 #O.scene.engines=O.scene.engines+[woo.core.PyRunner('import woo; sim=woo.O.scene.fields[-1].sim; print woo.O.dem.par[1].pos,sim.par[1].pos')]

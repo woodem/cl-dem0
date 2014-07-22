@@ -2,7 +2,7 @@
 import sys
 sys.path.append('.')
 import clDem
-from miniEigen import *
+from minieigen import *
 from math import *
 import pylab
 import itertools, random
@@ -30,9 +30,11 @@ for i in range(0,N):
 	sim.par[-1].vel=(0,0,random.random()*-.05)
 sim.scene.dt=.2*sim.pWaveDt()
 
-sim.run(1)
-for i in range(0,500):
-	sim.run(10,False) # do not reset arrays anymore
-	print 'E',sim.scene.energyTotal(),sim.scene.energyError();
-	print 'saved',sim.saveVtk('/tmp/jump')
+#sim.run(1)
+#for i in range(0,500):
+#	sim.run(10) # do not reset arrays anymore
+#	print 'E',sim.scene.energyTotal(),sim.scene.energyError();
+#	print 'saved',sim.saveVtk('/tmp/jump')
+import woo, woo.cld
+S=woo.master.scene=woo.cld.CLDemField.clDemToWoo(sim,100,relTol=0)
 

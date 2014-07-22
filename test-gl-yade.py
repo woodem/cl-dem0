@@ -8,7 +8,7 @@ from woo import utils, timing
 from woo.dem import *
 from woo.core import *
 
-from miniEigen import *
+from minieigen import *
 from math import *
 import pylab, itertools, random
 

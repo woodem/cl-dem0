@@ -3,7 +3,7 @@ import sys
 sys.path.append('.')
 import clDem
 
-from miniEigen import *
+from minieigen import *
 from math import *
 import pylab, itertools, random
 
@@ -34,12 +34,13 @@ if 1:
 	import woo.cld
 	import woo.log
 	import woo.gl
+	S=woo.master.scene
 	#woo.log.setLevel('GLViewer',woo.log.TRACE)
-	O.scene.fields=[woo.cld.CLDemField(sim)]
+	S.fields=[woo.cld.CLDemField(sim)]
 	nan=float('nan')
-	O.scene.loHint=O.scene.hiHint=(nan,nan,nan)
-	O.scene.engines=[woo.cld.CLDemRun(stepPeriod=10),]
-	O.scene.ranges=[woo.gl.Gl1_CLDemField.parRange]
+	S.boxHint=((nan,nan,nan),(nan,nan,nan))
+	S.engines=[woo.cld.CLDemRun(stepPeriod=10),]
+	S.ranges=[woo.gl.Gl1_CLDemField.parRange]
 	woo.gl.Gl1_CLDemField.bboxes=False
 
 

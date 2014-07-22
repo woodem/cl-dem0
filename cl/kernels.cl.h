@@ -38,6 +38,7 @@ CLDEM_NAMESPACE_END()
 /* the rest of the code is only used on the device */
 #ifdef __OPENCL_VERSION__
 
+#pragma OPENCL EXTENSION cl_amd_printf: enable
 
 // all kernels take the same set of arguments, for simplicity in the host code
 #define KERNEL_ARGUMENT_LIST1 global struct Scene* scene, global struct Particle* par, global struct Contact* con, global int* conFree, global long2* pot, global int *potFree, global struct CJournalItem* cJournal, global struct ClumpMember* clumps, global float* bboxes, const int countPar, const int countCon, const int countPot, const Real sceneDt
@@ -288,7 +289,7 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 		case SHAPET2_COMBINE(Shape_Sphere,Shape_Sphere):{
 			Real r1=p1.shape.sphere.radius, r2=p2.shape.sphere.radius;
 			if(distance(p1.pos,p2.pos) >= r1+r2){
-				// printf("pot ##%d+%d: distance %g.\n",(int)ids.s0,(int)ids.s1,distance(p1.pos,p2.pos)-(r1+r2));
+				// printf("pot  ##%d+%d: distance %g.\n",(int)ids.s0,(int)ids.s1,distance(p1.pos,p2.pos)-(r1+r2));
 				return;
 			}
 			break;
@@ -301,9 +302,6 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 	};
 	//printf("asdasdasd");
 
-	#ifdef CON_LOG
-		printf("Creating ##%ld+%ld\n",ids.s0,ids.s1);
-	#endif
 	// the contact is real, create it
 	// this will be moved to a separate function later
 
@@ -331,6 +329,10 @@ kernel void checkPotCon_PC(KERNEL_ARGUMENT_LIST1){
 		Scene_interrupt_set(scene, substep, INT_NOT_IMMEDIATE | INT_DESTRUCTIVE | INT_ARRAYS);
 		return;
 	}
+
+	#ifdef CON_LOG
+		printf("Creating ##%ld+%ld, ixCon=%d/%d\n",ids.s0,ids.s1,ixCon,countCon);
+	#endif
 	// actually create the new contact here
 	#if 0
 		// debugging only (the race conditions is fixed now, so it should not happen anymore)
@@ -367,6 +369,9 @@ bool Bbox_overlap(global float* _A, global float* _B){
 }
 
 void computeL6GeomGeneric(struct Contact* c, const Vec3 pos1, const Vec3 vel1, const Vec3 angVel1, const Vec3 pos2, const Vec3 vel2, const Vec3 angVel2, const Vec3 normal, const Vec3 contPt, const Real uN, Real dt){
+	#ifdef CON_LOG	
+		printf("computeL6GeomGeneric: ##%ld+%ld\n",c->ids.s0,c->ids.s1);
+	#endif
 	// new contact
 	if(con_geomT_get(c)==0){
 		con_geomT_set(c,Geom_L6Geom); L6Geom_init(&c->geom.l6g);
@@ -405,10 +410,14 @@ kernel void contCompute_C(KERNEL_ARGUMENT_LIST1){
 	const int substep=SUB_contCompute;
 	if(Scene_skipKernel(scene,substep)) return;
 	size_t cid=getLinearWorkItem();
+	PRINT_TRACE("contCompute_C");
+	// printf("con %ld/%d ... %d\n",cid,countCon,countPot);
 	if(cid>=countCon) return; // in case we are past real number of contacts
 	struct Contact c=con[cid];
+	#ifdef CON_LOG	
+		printf("contCompute_C: ##%ld+%ld\n",c.ids.s0,c.ids.s1);
+	#endif
 	if(c.ids.s0<0 || c.ids.s1<0) return; // deleted contact
-	PRINT_TRACE("contCompute_C");
 
 	const Real dt=sceneDt;
 	// assigned by the geom part, consumed by the phys part; needed for new contacts only

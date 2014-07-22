@@ -2,7 +2,7 @@ import sys
 sys.path.append('.')
 import clDem
 
-from miniEigen import *
+from minieigen import *
 
 from woo import utils
 m=utils.defaultMaterial()

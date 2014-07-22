@@ -4,7 +4,7 @@ import sys
 sys.path.append('.')
 import _clDem
 import math
-import miniEigen
+import minieigen
 
 import functools
 # create new instance of baseClass and set (existing) attributes from keywords
@@ -38,8 +38,8 @@ def mkWall(pos,axis,sim,matId=0,sense=0,groups=None,fixed=True):
 
 def briefOutput():
 	# output similar to the c++ code
-	miniEigen.Vector3.__str__=lambda s: '('+','.join('%g'%e for e in s)+')'
-	miniEigen.Matrix3.__str__=lambda s: '('+', '.join(','.join('%g'%e for e in s.row(i)) for i in (0,1,2))+')'
+	minieigen.Vector3.__str__=lambda s: '('+','.join('%g'%e for e in s)+')'
+	minieigen.Matrix3.__str__=lambda s: '('+', '.join(','.join('%g'%e for e in s.row(i)) for i in (0,1,2))+')'
 
 def showSim(sim):
 	print 'At step %d (t=%g), Δt=%g'%(sim.scene.step,sim.scene.t,sim.scene.dt)

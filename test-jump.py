@@ -2,7 +2,7 @@
 import sys
 sys.path.append('.')
 import clDem
-from miniEigen import *
+from minieigen import *
 from math import *
 import pylab
 
@@ -22,5 +22,5 @@ sim.par.append(clDem.mkSphere((0,0,0),.005,sim,matId=0,fixed=True))
 sim.par.append(clDem.mkSphere((0,0,.015),.005,sim,matId=0,fixed=False))
 
 import woo.cld
-woo.O.scene=woo.cld.CLDemRun.clDemToYade(sim,stepPeriod=1,relTol=1e-8)
+woo.master.scene=woo.cld.CLDemField.clDemToWoo(sim,stepPeriod=1,relTol=1e-8)
 #pylab.plot(zCoord,label='z-coord'); pylab.legend(loc='lower left'); pylab.twinx(); pylab.plot(f1z,c='red',label='F1z'); pylab.legend(); pylab.show()

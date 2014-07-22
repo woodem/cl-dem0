@@ -1,7 +1,7 @@
 import sys
 sys.path.append('.')
 import clDem
-import miniEigen
+import minieigen
 sim=clDem.Simulation() #platformNum,deviceNum
 def show(obj):
 	import pprint

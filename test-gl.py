@@ -3,7 +3,7 @@ import sys
 sys.path.append('.')
 import clDem
 
-from miniEigen import *
+from minieigen import *
 from math import *
 import pylab, itertools, random
 
@@ -55,7 +55,7 @@ import woo.log
 import woo.gl
 from woo import timing
 if 1: # run on both
-	O.scene=woo.cld.CLDemField.clDemToYade(sim,stepPeriod=20,relTol=-1e-5)
+	O.scene=woo.cld.CLDemField.clDemToWoo(sim,stepPeriod=20,relTol=-1e-5)
 	#O.timingEnabled=True
 	# remove last engine and the clDem field
 	#O.scene.engines=O.scene.engines[0:-1]
